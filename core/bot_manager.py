@@ -1,5 +1,114 @@
 # core/bot_manager.py
 """
 Gestionnaire central du bot.
-Gère le cycle de vie des ressources, le chargement des cogs et la synchronisation.
+Gère le cycle de vie, le chargement des cogs et la synchronisation.
 """
+
+import os
+import importlib
+from pathlib import Path
+from typing import Optional
+
+import discord
+from discord.ext import commands
+
+from utils.logging_config import logger
+
+
+class BotManager(commands.Bot):
+    """
+    Gestionnaire principal du bot Discord.
+    Hérite de commands.Bot et ajoute des fonctionnalités de gestion avancées.
+    """
+
+    def __init__(self, intents: discord.Intents):
+        """
+        Initialise le gestionnaire du bot.
+
+        Args:
+            intents: Les intents Discord à utiliser
+        """
+        super().__init__(
+            command_prefix="!",  # Prefix de fallback (on utilise surtout les slash commands)
+            intents=intents,
+            help_command=None  # Désactive le help command par défaut
+        )
+
+        self.logger = logger
+
+    async def setup_hook(self):
+        """
+        Hook appelé pendant le setup du bot.
+        Charge les cogs et synchronise les commandes slash.
+        """
+        self.logger.info("Démarrage du setup du bot...")
+
+        # Charger tous les cogs
+        await self.load_all_cogs()
+
+        # Synchroniser les commandes slash avec Discord
+        self.logger.info("Synchronisation des commandes slash...")
+        try:
+            synced = await self.tree.sync()
+            self.logger.info(f"{len(synced)} commande(s) slash synchronisée(s)")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la synchronisation des commandes: {e}")
+
+    async def load_all_cogs(self):
+        """
+        Charge automatiquement tous les cogs depuis le dossier cogs/
+        """
+        cogs_dir = Path("cogs")
+
+        if not cogs_dir.exists():
+            self.logger.warning("Le dossier 'cogs' n'existe pas")
+            return
+
+        # Parcourir tous les sous-dossiers de cogs/
+        for folder in cogs_dir.iterdir():
+            if folder.is_dir() and not folder.name.startswith("__"):
+                # Chercher les fichiers Python dans ce dossier
+                for file in folder.iterdir():
+                    if file.suffix == ".py" and not file.name.startswith("__"):
+                        # Construire le chemin du module: cogs.folder.file
+                        module_path = f"cogs.{folder.name}.{file.stem}"
+
+                        try:
+                            # Charger le module
+                            await self.load_extension(module_path)
+                            self.logger.info(
+                                f"[OK] Cog charge: {module_path}"
+                            )
+                        except Exception as e:
+                            self.logger.error(
+                                f"[ERREUR] Chargement de {module_path}: {e}"
+                            )
+
+    async def on_ready(self):
+        """
+        Event appelé quand le bot est prêt et connecté.
+        """
+        self.logger.info("=" * 50)
+        self.logger.info(f"Bot connecté en tant que: {self.user.name} (ID: {self.user.id})")
+        self.logger.info(f"Connecté à {len(self.guilds)} serveur(s)")
+        self.logger.info("=" * 50)
+
+        # Afficher les serveurs
+        for guild in self.guilds:
+            self.logger.info(f"  - {guild.name} (ID: {guild.id})")
+
+    async def on_error(self, event: str, *args, **kwargs):
+        """
+        Gestionnaire d'erreurs global.
+
+        Args:
+            event: Nom de l'événement qui a causé l'erreur
+        """
+        self.logger.exception(f"Erreur dans l'événement {event}")
+
+    async def close(self):
+        """
+        Ferme proprement le bot et ses ressources.
+        """
+        self.logger.info("Fermeture du bot...")
+        await super().close()
