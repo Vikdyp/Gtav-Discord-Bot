@@ -14,11 +14,43 @@ load_dotenv()
 
 
 @dataclass
+class DatabaseConfig:
+    """Configuration de la base de données PostgreSQL"""
+
+    user: str
+    password: str
+    host: str
+    database: str
+    port: int = 5432
+
+    @classmethod
+    def from_env(cls) -> "DatabaseConfig":
+        """Crée la configuration de la base de données depuis les variables d'environnement"""
+        user = os.getenv("DB_USER", "postgres")
+        password = os.getenv("DB_PASSWORD", "")
+        host = os.getenv("DB_HOST", "localhost")
+        database = os.getenv("DB_NAME", "discord_bot")
+        port = int(os.getenv("DB_PORT", "5432"))
+
+        if not password:
+            raise ValueError("DB_PASSWORD n'est pas défini dans le fichier .env")
+
+        return cls(
+            user=user,
+            password=password,
+            host=host,
+            database=database,
+            port=port
+        )
+
+
+@dataclass
 class BotConfig:
     """Configuration principale du bot Discord"""
 
     token: str
     intents: discord.Intents
+    database: DatabaseConfig
 
     @classmethod
     def from_env(cls) -> "BotConfig":
@@ -36,7 +68,8 @@ class BotConfig:
 
         return cls(
             token=token,
-            intents=intents
+            intents=intents,
+            database=DatabaseConfig.from_env()
         )
 
 

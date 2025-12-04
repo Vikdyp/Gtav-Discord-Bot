@@ -13,6 +13,8 @@ import discord
 from discord.ext import commands
 
 from utils.logging_config import logger
+from utils.database import Database
+from config import DatabaseConfig
 
 
 class BotManager(commands.Bot):
@@ -21,12 +23,13 @@ class BotManager(commands.Bot):
     Hérite de commands.Bot et ajoute des fonctionnalités de gestion avancées.
     """
 
-    def __init__(self, intents: discord.Intents):
+    def __init__(self, intents: discord.Intents, db_config: DatabaseConfig):
         """
         Initialise le gestionnaire du bot.
 
         Args:
             intents: Les intents Discord à utiliser
+            db_config: Configuration de la base de données
         """
         super().__init__(
             command_prefix="!",  # Prefix de fallback (on utilise surtout les slash commands)
@@ -36,12 +39,30 @@ class BotManager(commands.Bot):
 
         self.logger = logger
 
+        # Initialiser la base de données
+        self.db = Database(
+            user=db_config.user,
+            password=db_config.password,
+            host=db_config.host,
+            database=db_config.database,
+            port=db_config.port
+        )
+
     async def setup_hook(self):
         """
         Hook appelé pendant le setup du bot.
         Charge les cogs et synchronise les commandes slash.
         """
         self.logger.info("Démarrage du setup du bot...")
+
+        # Connexion à la base de données
+        self.logger.info("Connexion à la base de données PostgreSQL...")
+        try:
+            await self.db.connect()
+            self.logger.info("Connexion à la base de données réussie")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la connexion à la base de données: {e}")
+            raise
 
         # Charger tous les cogs
         await self.load_all_cogs()
@@ -111,4 +132,10 @@ class BotManager(commands.Bot):
         Ferme proprement le bot et ses ressources.
         """
         self.logger.info("Fermeture du bot...")
+
+        # Fermer la connexion à la base de données
+        if self.db and self.db.pool:
+            self.logger.info("Fermeture de la connexion à la base de données...")
+            await self.db.close()
+
         await super().close()

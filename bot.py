@@ -20,7 +20,7 @@ async def main():
     logger.info("Démarrage du bot Lester...")
 
     # Créer l'instance du bot
-    bot = BotManager(intents=config.intents)
+    bot = BotManager(intents=config.intents, db_config=config.database)
 
     try:
         # Démarrer le bot
