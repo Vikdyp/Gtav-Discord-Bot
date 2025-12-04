@@ -6,6 +6,7 @@ Utilise des dataclasses pour une meilleure validation et typage.
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 from dotenv import load_dotenv
 import discord
 
@@ -24,16 +25,19 @@ class DatabaseConfig:
     port: int = 5432
 
     @classmethod
-    def from_env(cls) -> "DatabaseConfig":
+    def from_env(cls) -> "DatabaseConfig | None":
         """Crée la configuration de la base de données depuis les variables d'environnement"""
-        user = os.getenv("DB_USER", "postgres")
-        password = os.getenv("DB_PASSWORD", "")
-        host = os.getenv("DB_HOST", "localhost")
-        database = os.getenv("DB_NAME", "discord_bot")
-        port = int(os.getenv("DB_PORT", "5432"))
+        user = os.getenv("DB_USER")
+        password = os.getenv("DB_PASSWORD")
+        host = os.getenv("DB_HOST")
+        database = os.getenv("DB_NAME")
+        port_str = os.getenv("DB_PORT")
 
-        if not password:
-            raise ValueError("DB_PASSWORD n'est pas défini dans le fichier .env")
+        # Si les variables essentielles ne sont pas définies, retourner None
+        if not all([user, password, host, database]):
+            return None
+
+        port = int(port_str) if port_str else 5432
 
         return cls(
             user=user,
@@ -50,7 +54,7 @@ class BotConfig:
 
     token: str
     intents: discord.Intents
-    database: DatabaseConfig
+    database: Optional[DatabaseConfig]
 
     @classmethod
     def from_env(cls) -> "BotConfig":

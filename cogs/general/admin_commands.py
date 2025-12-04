@@ -12,7 +12,7 @@ class GeneralCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.logger = logger
-        self.db_service = TestEntryService(bot.db)
+        self.db_service = TestEntryService(bot.db) if bot.db else None
 
     @app_commands.command(
         name="ping",
@@ -55,15 +55,31 @@ class GeneralCommands(commands.Cog):
     ):
         await interaction.response.defer(thinking=True)
 
+        # Vérifier si la DB est disponible
+        if not self.bot.db:
+            await interaction.followup.send(embed=discord.Embed(
+                title="❌ Base de données non disponible",
+                description="La base de données n'est pas configurée ou la connexion a échoué.",
+                color=discord.Color.red()
+            ))
+            return
+
         if action.value == "test":
             try:
                 row = await self.bot.db.fetchrow("SELECT 1;")
-                await interaction.followup.send(embed=discord.Embed(
-                    title="📡 Connexion PostgreSQL",
-                    description=f"Connexion réussie : **{row[0]}**",
-                    color=discord.Color.green()
-                ))
-                self.logger.info("[DB] Connexion PostgreSQL OK")
+                if row is None:
+                    await interaction.followup.send(embed=discord.Embed(
+                        title="❌ Base de données non disponible",
+                        description="La connexion à la base de données a échoué.",
+                        color=discord.Color.red()
+                    ))
+                else:
+                    await interaction.followup.send(embed=discord.Embed(
+                        title="📡 Connexion PostgreSQL",
+                        description=f"Connexion réussie : **{row[0]}**",
+                        color=discord.Color.green()
+                    ))
+                    self.logger.info("[DB] Connexion PostgreSQL OK")
             except Exception as e:
                 self.logger.error(f"[DB] Erreur PostgreSQL : {e}")
                 await interaction.followup.send(embed=discord.Embed(
