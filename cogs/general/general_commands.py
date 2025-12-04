@@ -62,7 +62,7 @@ class GeneralCommands(commands.Cog):
         host = "postgresql"  # À adapter si ton HOSTNAME est différent
         user = "postgres"
         password = "postgres1234"
-        dbname = "lesterbot"
+        dbname = "lesterdb"
 
         conn_string = (
             f"postgresql://{user}:{password}@{host}:5432/{dbname}"
