@@ -2,7 +2,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.general.services.db_service import TestEntryService
+from cogs.general.services.admin_commands_service import TestEntryService
 from utils.logging_config import logger
 from typing import Optional
 
