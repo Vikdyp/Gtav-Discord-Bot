@@ -52,16 +52,14 @@ class GeneralCommands(commands.Cog):
             f"Commande /ping utilisée par {interaction.user} "
             f"(latence: {latency_ms}ms)"
         )
-    
+
     @app_commands.command(
         name="dbtest",
         description="Teste la connexion à la base PostgreSQL"
     )
     async def dbtest(self, interaction: discord.Interaction):
-        """Teste la connexion PostgreSQL via VLAN"""
 
-        # Paramètres fournis par toi
-        host = "postgresql"  # HOSTNAME VLAN
+        host = "postgresql"  # À adapter si ton HOSTNAME est différent
         user = "postgres"
         password = "postgres1234"
         dbname = "lesterbot"
@@ -70,21 +68,20 @@ class GeneralCommands(commands.Cog):
             f"postgresql://{user}:{password}@{host}:5432/{dbname}"
         )
 
+        self.logger.info(f"Tentative de connexion PostgreSQL avec : {conn_string}")
+
         try:
-            # Tentative de connexion
             with psycopg.connect(conn_string) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1;")
                     result = cur.fetchone()
 
-            # Réponse Discord
             embed = discord.Embed(
                 title="📡 Connexion PostgreSQL",
                 description=f"Connexion réussie : **{result[0]}**",
                 color=discord.Color.green()
             )
             await interaction.response.send_message(embed=embed)
-
             self.logger.info("Connexion PostgreSQL OK")
 
         except Exception as e:
@@ -95,6 +92,7 @@ class GeneralCommands(commands.Cog):
             )
             await interaction.response.send_message(embed=embed)
             self.logger.error(f"Erreur PostgreSQL : {e}")
+
 
 async def setup(bot: commands.Bot):
     """
