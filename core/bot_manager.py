@@ -140,7 +140,7 @@ class BotManager(commands.Bot):
         self.logger.info("Fermeture du bot...")
 
         # Fermer la connexion à la base de données
-        if self.db and self.db.pool:
+        if self.db:
             self.logger.info("Fermeture de la connexion à la base de données...")
             await self.db.close()
 
