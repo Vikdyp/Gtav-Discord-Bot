@@ -9,6 +9,7 @@ from discord.ext import commands
 from typing import Optional
 
 from utils.logging_config import logger
+from utils.migrator import Migrator
 from .services.admin_commands_service import AdminCommandsService
 
 
@@ -173,6 +174,96 @@ class GeneralCommands(commands.Cog):
                 await interaction.followup.send(embed=embed)
                 self.logger.error(f"[DB] Erreur lecture PostgreSQL : {e}")
             return
+
+    # -------------------- COMMANDE MIGRATE --------------------
+
+    @app_commands.command(
+        name="migrate",
+        description="[Admin] Gère les migrations de la base de données"
+    )
+    @app_commands.describe(
+        action="Action à effectuer sur les migrations"
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="Voir le statut", value="status"),
+            app_commands.Choice(name="Appliquer Cayo Perico V2", value="apply_cayo_v2"),
+        ]
+    )
+    async def migrate(
+        self,
+        interaction: discord.Interaction,
+        action: app_commands.Choice[str]
+    ):
+        """
+        Commande pour gérer les migrations SQL.
+        Vérifie et applique les migrations de manière sécurisée.
+        """
+        # Vérifier que la DB est disponible
+        db = getattr(self.bot, "db", None)
+        if db is None:
+            embed = discord.Embed(
+                title="❌ Base de données non configurée",
+                description="Le bot n'a pas de connexion à la base de données.",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        migrator = Migrator(db)
+        action_value = action.value
+
+        # ---- ACTION: STATUS ----
+        if action_value == "status":
+            try:
+                status_message = await migrator.get_migration_status()
+
+                embed = discord.Embed(
+                    title="📋 Statut des migrations",
+                    description=status_message,
+                    color=discord.Color.blurple()
+                )
+
+                await interaction.followup.send(embed=embed)
+                self.logger.info(f"[Migrate] Statut des migrations consulté par {interaction.user}")
+
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Erreur",
+                    description=f"Impossible de récupérer le statut des migrations.\n```\n{e}\n```",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                self.logger.error(f"[Migrate] Erreur lors de la récupération du statut : {e}")
+
+        # ---- ACTION: APPLY CAYO V2 ----
+        elif action_value == "apply_cayo_v2":
+            try:
+                success, message = await migrator.apply_cayo_v2_migration()
+
+                embed = discord.Embed(
+                    title="🔄 Migration Cayo Perico V2",
+                    description=message,
+                    color=discord.Color.green() if success else discord.Color.red()
+                )
+
+                await interaction.followup.send(embed=embed)
+
+                if success:
+                    self.logger.info(f"[Migrate] Migration Cayo V2 appliquée par {interaction.user}")
+                else:
+                    self.logger.warning(f"[Migrate] Échec de la migration Cayo V2 : {message}")
+
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Erreur critique",
+                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
 
 
 async def setup(bot: commands.Bot):

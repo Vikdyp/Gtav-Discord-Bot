@@ -27,6 +27,7 @@ def _format_secondary_loot(secondary_loot: Dict[str, int]) -> str:
         "coke": "Cocaïne",
         "weed": "Weed",
         "paintings": "Tableaux",
+        "cash": "Billets",
     }
 
     parts: List[str] = []
@@ -246,30 +247,36 @@ class CayoPericoSetupModal(discord.ui.Modal, title="Préparation Cayo Perico"):
     )
 
     gold = discord.ui.TextInput(
-        label="Or (nombre de piles)",
+        label="Or",
         required=False,
         placeholder="Ex: 3",
         max_length=10,
     )
 
     coke = discord.ui.TextInput(
-        label="Cocaïne (nombre de piles)",
+        label="Cocaïne",
         required=False,
         placeholder="Ex: 2",
         max_length=10,
     )
 
     weed = discord.ui.TextInput(
-        label="Weed (nombre de piles)",
+        label="Weed",
         required=False,
         placeholder="Ex: 1",
         max_length=10,
     )
 
     paintings = discord.ui.TextInput(
-        label="Tableaux (nombre)",
+        label="Tableaux",
         required=False,
         placeholder="Ex: 2",
+        max_length=10,
+    )
+    cash = discord.ui.TextInput(
+        label="Billets",
+        required=False,
+        placeholder="Ex: 5",
         max_length=10,
     )
 

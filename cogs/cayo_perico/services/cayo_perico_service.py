@@ -1,4 +1,18 @@
-# cogs/gta/services/cayo_perico_service.py
+# cogs/cayo_perico/services/cayo_perico_service.py
+"""
+Service pour la fonctionnalité Cayo Perico.
+
+IMPORTANT: Ce service ne crée PAS les tables automatiquement.
+Les tables doivent être créées via les migrations SQL :
+    1. Utiliser /migrate action:"Voir le statut" pour vérifier
+    2. Utiliser /migrate action:"Appliquer Cayo Perico V2" pour créer les tables
+
+Tables requises :
+    - users (table de base)
+    - cayo_heists (avec colonnes V2: hard_mode, safe_amount, optimized_plan)
+    - cayo_participants
+    - cayo_results (pour les statistiques)
+"""
 
 from typing import Optional, Any, Dict, List
 
@@ -15,92 +29,6 @@ class CayoPericoService:
     def __init__(self, db: Optional[Database]):
         self.db = db
 
-    async def _ensure_tables(self) -> None:
-        """
-        Crée les tables nécessaires si elles n'existent pas.
-        - users
-        - cayo_heists
-        - cayo_participants
-        """
-        if self.db is None:
-            raise RuntimeError("Base de données non disponible dans CayoPericoService")
-
-        # Table users (utilisateur Discord -> id interne)
-        create_users_sql = """
-        CREATE TABLE IF NOT EXISTS users (
-            id          SERIAL PRIMARY KEY,
-            discord_id  BIGINT NOT NULL UNIQUE,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        """
-
-        # Table des braquages Cayo
-        create_heists_sql = """
-        CREATE TABLE IF NOT EXISTS cayo_heists (
-            id              SERIAL PRIMARY KEY,
-            guild_id        BIGINT NOT NULL,
-            channel_id      BIGINT NOT NULL,
-            message_id      BIGINT NOT NULL,
-
-            leader_user_id  INTEGER NOT NULL REFERENCES users(id),
-
-            primary_loot    TEXT NOT NULL,
-            secondary_loot  JSONB NOT NULL,
-
-            estimated_loot  INTEGER,
-            final_loot      INTEGER,
-            status          TEXT NOT NULL DEFAULT 'pending',
-
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        """
-
-        # Table des participants
-        create_participants_sql = """
-        CREATE TABLE IF NOT EXISTS cayo_participants (
-            id          SERIAL PRIMARY KEY,
-            heist_id    INTEGER NOT NULL REFERENCES cayo_heists(id) ON DELETE CASCADE,
-            user_id     INTEGER NOT NULL REFERENCES users(id),
-            role        TEXT,
-            bag_plan    JSONB,
-            joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        """
-
-        # Contrainte d'unicité pour éviter les doublons (un user par heist)
-        unique_participant_sql = """
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1
-                FROM   pg_constraint
-                WHERE  conname = 'uq_cayo_participant'
-            ) THEN
-                ALTER TABLE cayo_participants
-                ADD CONSTRAINT uq_cayo_participant UNIQUE (heist_id, user_id);
-            END IF;
-        END$$;
-        """
-
-        # Index utiles
-        index_heists_status_sql = """
-        CREATE INDEX IF NOT EXISTS idx_cayo_heists_guild_status
-        ON cayo_heists (guild_id, status);
-        """
-        index_heists_message_sql = """
-        CREATE INDEX IF NOT EXISTS idx_cayo_heists_message
-        ON cayo_heists (guild_id, channel_id, message_id);
-        """
-
-        await self.db.execute(create_users_sql)
-        await self.db.execute(create_heists_sql)
-        await self.db.execute(create_participants_sql)
-        await self.db.execute(unique_participant_sql)
-        await self.db.execute(index_heists_status_sql)
-        await self.db.execute(index_heists_message_sql)
-
     async def _get_or_create_user(self, discord_id: int) -> int:
         """
         Retourne l'ID interne (users.id) pour un discord_id.
@@ -108,8 +36,6 @@ class CayoPericoService:
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
-
-        await self._ensure_tables()
 
         select_sql = """
         SELECT id
@@ -150,8 +76,6 @@ class CayoPericoService:
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        await self._ensure_tables()
-
         leader_user_id = await self._get_or_create_user(leader_discord_id)
 
         insert_sql = """
@@ -190,8 +114,6 @@ class CayoPericoService:
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        await self._ensure_tables()
-
         user_id = await self._get_or_create_user(user_discord_id)
 
         insert_sql = """
@@ -210,8 +132,6 @@ class CayoPericoService:
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        await self._ensure_tables()
-
         user_id = await self._get_or_create_user(user_discord_id)
 
         delete_sql = """
@@ -229,8 +149,6 @@ class CayoPericoService:
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        await self._ensure_tables()
-
         update_sql = """
         UPDATE cayo_heists
         SET status = 'ready',
@@ -247,8 +165,6 @@ class CayoPericoService:
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
-
-        await self._ensure_tables()
 
         update_sql = """
         UPDATE cayo_heists
@@ -273,8 +189,6 @@ class CayoPericoService:
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
-
-        await self._ensure_tables()
 
         select_sql = """
         SELECT
@@ -325,8 +239,6 @@ class CayoPericoService:
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        await self._ensure_tables()
-
         select_sql = """
         SELECT u.discord_id
         FROM cayo_participants p
@@ -337,3 +249,171 @@ class CayoPericoService:
 
         rows = await self.db.fetch(select_sql, heist_id)
         return [row[0] for row in rows]
+
+    async def update_optimized_plan(self, heist_id: int, optimized_plan: List[Dict]) -> None:
+        """
+        Met à jour le plan de sac optimisé d'un braquage.
+
+        Args:
+            heist_id: ID du braquage
+            optimized_plan: Plan généré par optimizer.optimize_bags()
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        import json
+
+        update_sql = """
+        UPDATE cayo_heists
+        SET optimized_plan = %s,
+            updated_at = NOW()
+        WHERE id = %s;
+        """
+
+        await self.db.execute(update_sql, json.dumps(optimized_plan), heist_id)
+        logger.info(f"[Cayo] Plan optimisé mis à jour pour heist {heist_id}")
+
+    async def save_real_gains(
+        self,
+        heist_id: int,
+        real_gains: Dict[int, int]
+    ) -> None:
+        """
+        Sauvegarde les gains réels de chaque participant.
+
+        Args:
+            heist_id: ID du braquage
+            real_gains: {discord_id: montant_réel}
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        # Récupérer le heist avec le plan prévu
+        heist = await self.get_heist_by_id(heist_id)
+        if heist is None:
+            raise ValueError(f"Heist {heist_id} non trouvé")
+
+        optimized_plan = heist.get("optimized_plan") or []
+        participants = await self.get_participants(heist_id)
+
+        # Sauvegarder pour chaque participant
+        for idx, participant_discord_id in enumerate(participants):
+            user_id = await self._get_or_create_user(participant_discord_id)
+
+            # Récupérer le gain prévu depuis le plan
+            predicted_gain = 0
+            if idx < len(optimized_plan):
+                predicted_gain = optimized_plan[idx].get("total_value", 0)
+
+            real_gain = real_gains.get(participant_discord_id, 0)
+
+            insert_sql = """
+            INSERT INTO cayo_results (heist_id, user_id, predicted_gain, real_gain)
+            VALUES (%s, %s, %s, %s);
+            """
+
+            await self.db.execute(insert_sql, heist_id, user_id, predicted_gain, real_gain)
+
+        logger.info(f"[Cayo] Gains réels sauvegardés pour heist {heist_id}")
+
+    async def get_heist_by_id(self, heist_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Récupère un heist par son ID.
+
+        Args:
+            heist_id: ID du braquage
+
+        Returns:
+            Dict avec les infos du heist ou None
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        select_sql = """
+        SELECT
+            h.id,
+            h.guild_id,
+            h.channel_id,
+            h.message_id,
+            u.discord_id AS leader_discord_id,
+            h.primary_loot,
+            h.secondary_loot,
+            h.estimated_loot,
+            h.final_loot,
+            h.status,
+            h.hard_mode,
+            h.safe_amount,
+            h.optimized_plan,
+            h.created_at,
+            h.updated_at
+        FROM cayo_heists h
+        JOIN users u ON h.leader_user_id = u.id
+        WHERE h.id = %s;
+        """
+
+        row = await self.db.fetchrow(select_sql, heist_id)
+
+        if row is None:
+            return None
+
+        import json
+
+        return {
+            "id": row[0],
+            "guild_id": row[1],
+            "channel_id": row[2],
+            "message_id": row[3],
+            "leader_id": row[4],
+            "primary_loot": row[5],
+            "secondary_loot": row[6],
+            "estimated_loot": row[7],
+            "final_loot": row[8],
+            "status": row[9],
+            "hard_mode": row[10],
+            "safe_amount": row[11],
+            "optimized_plan": json.loads(row[12]) if row[12] else [],
+            "created_at": row[13],
+            "updated_at": row[14],
+        }
+
+    async def get_user_statistics(self, discord_id: int) -> Dict[str, Any]:
+        """
+        Récupère les statistiques d'un utilisateur.
+
+        Args:
+            discord_id: ID Discord de l'utilisateur
+
+        Returns:
+            Dict avec les stats
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        select_sql = """
+        SELECT
+            COUNT(DISTINCT r.heist_id) as total_heists,
+            COALESCE(AVG(r.real_gain), 0) as avg_gain,
+            COALESCE(AVG(r.accuracy_percent), 0) as avg_accuracy,
+            COALESCE(SUM(r.real_gain), 0) as total_earned
+        FROM users u
+        LEFT JOIN cayo_results r ON u.id = r.user_id
+        WHERE u.discord_id = %s
+        GROUP BY u.id;
+        """
+
+        row = await self.db.fetchrow(select_sql, discord_id)
+
+        if row is None:
+            return {
+                "total_heists": 0,
+                "avg_gain": 0,
+                "avg_accuracy": 0.0,
+                "total_earned": 0,
+            }
+
+        return {
+            "total_heists": row[0] or 0,
+            "avg_gain": int(row[1]) if row[1] else 0,
+            "avg_accuracy": round(float(row[2]), 2) if row[2] else 0.0,
+            "total_earned": int(row[3]) if row[3] else 0,
+        }
