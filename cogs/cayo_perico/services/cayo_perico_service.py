@@ -78,6 +78,8 @@ class CayoPericoService:
 
         leader_user_id = await self._get_or_create_user(leader_discord_id)
 
+        import json
+
         insert_sql = """
         INSERT INTO cayo_heists (
             guild_id, channel_id, message_id,
@@ -95,7 +97,7 @@ class CayoPericoService:
             message_id,
             leader_user_id,
             primary_loot,
-            secondary_loot,
+            json.dumps(secondary_loot),
             estimated_loot,
         )
 
