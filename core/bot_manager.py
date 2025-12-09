@@ -13,6 +13,7 @@ from discord.ext import commands
 from utils.logging_config import logger
 from utils.database import Database
 from config import DatabaseConfig
+from utils.view_manager import init_persistent_views
 
 
 class BotManager(commands.Bot):
@@ -53,11 +54,13 @@ class BotManager(commands.Bot):
     async def setup_hook(self):
         """
         Hook appelé pendant le setup du bot.
-        Charge les cogs et synchronise les commandes slash.
+        Charge les cogs, initialise les vues persistantes et synchronise les commandes slash.
         """
         self.logger.info("Démarrage du setup du bot...")
 
-        # Connexion à la base de données si elle existe
+        # -----------------------------
+        # 1) Connexion DB
+        # -----------------------------
         if self.db:
             self.logger.info("Connexion à la base de données PostgreSQL...")
             try:
@@ -70,16 +73,32 @@ class BotManager(commands.Bot):
         else:
             self.logger.info("Aucune base de données configurée - Le bot démarre sans DB")
 
-        # Charger tous les cogs
+        # -----------------------------
+        # 2) Charger tous les cogs
+        # -----------------------------
         await self.load_all_cogs()
 
-        # Synchroniser les commandes slash avec Discord
+        # -----------------------------
+        # 3) Initialiser les vues persistantes
+        # -----------------------------
+        # (Toutes les Views enregistrées via register_persistent_view()
+        # seront recréées automatiquement ici)
+        try:
+            init_persistent_views(self)
+            self.logger.info("Views persistantes initialisées")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'initialisation des views persistantes: {e}")
+
+        # -----------------------------
+        # 4) Synchronisation des slash commands
+        # -----------------------------
         self.logger.info("Synchronisation des commandes slash...")
         try:
             synced = await self.tree.sync()
             self.logger.info(f"{len(synced)} commande(s) slash synchronisée(s)")
         except Exception as e:
             self.logger.error(f"Erreur lors de la synchronisation des commandes: {e}")
+
 
     async def load_all_cogs(self):
         """
