@@ -20,7 +20,7 @@ from .services.cayo_perico_service import CayoPericoService
 from .optimizer import (
     PRIMARY_TARGETS,
     SECONDARY_TARGETS,
-    calculate_total_loot,
+    calculate_estimated_loot,
     optimize_bags,
 )
 from .formatters import (
@@ -138,7 +138,9 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
         # Créer un embed de configuration
         hard_mode = False
-        total_loot = calculate_total_loot(self.primary_target, secondary_loot, hard_mode)
+        # Calculer avec les sacs optimisés (solo par défaut)
+        optimized_bags = optimize_bags(secondary_loot, num_players=1, is_solo=True)
+        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, hard_mode)
 
         embed = discord.Embed(
             title="💣 Configuration Cayo Perico",
@@ -153,7 +155,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
         embed.add_field(
             name="ℹ️ Prochaines étapes",
-            value="• Active le **mode difficile** si nécessaire (+25% gains)\n"
+            value="• Active le **mode difficile** si nécessaire (+25% sur objectif primaire)\n"
                   "• Clique sur **Confirmer** pour créer le braquage",
             inline=False
         )
@@ -186,7 +188,8 @@ class ConfigView(discord.ui.View):
         button.style = discord.ButtonStyle.success if self.hard_mode else discord.ButtonStyle.secondary
 
         # Recalculer et mettre à jour l'embed
-        total_loot = calculate_total_loot(self.primary_target, self.secondary_loot, self.hard_mode)
+        optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True)
+        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode)
 
         embed = discord.Embed(
             title="💣 Configuration Cayo Perico",
@@ -201,7 +204,7 @@ class ConfigView(discord.ui.View):
 
         embed.add_field(
             name="ℹ️ Prochaines étapes",
-            value="• Active le **mode difficile** si nécessaire (+25% gains)\n"
+            value="• Active le **mode difficile** si nécessaire (+25% sur objectif primaire)\n"
                   "• Clique sur **Confirmer** pour créer le braquage",
             inline=False
         )
@@ -223,9 +226,9 @@ class ConfigView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        # Calculer le butin total et optimiser les sacs
-        total_loot = calculate_total_loot(self.primary_target, self.secondary_loot, self.hard_mode)
+        # Optimiser les sacs et calculer le butin estimé RÉEL
         optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True)
+        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode)
 
         # Créer l'embed final
         embed = discord.Embed(
@@ -345,10 +348,10 @@ class CayoPericoView(discord.ui.View):
         # Sauvegarder le nouveau plan
         await self.service.update_optimized_plan(heist["id"], optimized_bags)
 
-        # Recalculer le butin total
-        total_loot = calculate_total_loot(
+        # Recalculer le butin estimé RÉEL (seulement ce qui rentre dans les sacs)
+        total_loot = calculate_estimated_loot(
             heist["primary_loot"],
-            heist["secondary_loot"],
+            optimized_bags,
             heist.get("hard_mode", False)
         )
 
@@ -435,6 +438,23 @@ class CayoPericoView(discord.ui.View):
         if heist is None:
             return
 
+        # Si l'organisateur quitte, supprimer le braquage
+        if interaction.user.id == heist["leader_id"]:
+            await interaction.response.send_message(
+                "Tu es l'organisateur, le braquage va être supprimé.", ephemeral=True
+            )
+
+            # Supprimer le braquage
+            await self.service.delete_heist(heist["id"])
+
+            # Supprimer le message
+            try:
+                await interaction.message.delete()
+            except:
+                pass  # Le message n'existe peut-être plus
+
+            return
+
         # Répondre immédiatement à l'interaction
         await interaction.response.send_message(
             "Tu as quitté le braquage.", ephemeral=True
@@ -466,15 +486,35 @@ class CayoPericoView(discord.ui.View):
             )
             return
 
+        # Vérifier que le braquage n'est pas déjà prêt ou terminé
+        if heist.get("status") != "pending":
+            status_msg = {
+                "ready": "Le braquage est déjà marqué comme prêt.",
+                "finished": "Le braquage est déjà terminé.",
+                "cancelled": "Le braquage a été annulé.",
+            }.get(heist.get("status"), "Le braquage n'est plus en préparation.")
+
+            await interaction.response.send_message(
+                status_msg,
+                ephemeral=True,
+            )
+            return
+
         await interaction.response.defer(ephemeral=True)
 
         # Marquer le braquage comme prêt
         await self.service.mark_ready(heist["id"])
         await self._update_message_embed(interaction, heist)
 
+        # Récupérer le heist complet avec le plan optimisé depuis la DB
+        heist_full = await self.service.get_heist_by_id(heist["id"])
+        if heist_full is None:
+            await interaction.followup.send("Erreur : impossible de récupérer le braquage.", ephemeral=True)
+            return
+
         # Envoyer le plan de sac à chaque participant en privé
         participants = await self.service.get_participants(heist["id"])
-        optimized_plan = heist.get("optimized_plan") or []
+        optimized_plan = heist_full.get("optimized_plan") or []
 
         for idx, participant_id in enumerate(participants):
             if idx >= len(optimized_plan):

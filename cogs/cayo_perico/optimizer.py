@@ -68,7 +68,10 @@ def calculate_total_loot(
     hard_mode: bool
 ) -> int:
     """
-    Calcule le butin total estimé.
+    Calcule le butin total estimé (OBSOLÈTE - utiliser calculate_estimated_loot à la place).
+
+    ATTENTION : Cette fonction calcule le butin total DISPONIBLE, pas le butin réellement récupérable.
+    Pour le butin estimé réel, utilisez calculate_estimated_loot() avec les sacs optimisés.
 
     Args:
         primary_target: Clé de l'objectif principal (ex: "pink_diamond")
@@ -80,6 +83,10 @@ def calculate_total_loot(
     """
     primary_value = PRIMARY_TARGETS[primary_target]["value"]
 
+    # Le mode difficile s'applique UNIQUEMENT sur l'objectif primaire
+    if hard_mode:
+        primary_value = int(primary_value * HARD_MODE_MULTIPLIER)
+
     secondary_value = sum(
         SECONDARY_TARGETS[loot_type]["value"] * qty
         for loot_type, qty in secondary_quantities.items()
@@ -87,9 +94,6 @@ def calculate_total_loot(
     )
 
     total = primary_value + secondary_value + SAFE_VALUE
-
-    if hard_mode:
-        total = int(total * HARD_MODE_MULTIPLIER)
 
     return total
 
@@ -256,3 +260,33 @@ def calculate_loss(
     loss_percent = (loss / available * 100) if available > 0 else 0
 
     return loss, loss_percent
+
+
+def calculate_estimated_loot(
+    primary_target: str,
+    bags: List[BagPlan],
+    hard_mode: bool
+) -> int:
+    """
+    Calcule le butin estimé RÉEL basé sur ce qui rentre dans les sacs optimisés.
+
+    Args:
+        primary_target: Clé de l'objectif principal
+        bags: Plans de sac optimisés générés par optimize_bags()
+        hard_mode: True si mode difficile (bonus +25% UNIQUEMENT sur primaire)
+
+    Returns:
+        Valeur totale estimée en GTA$
+    """
+    primary_value = PRIMARY_TARGETS[primary_target]["value"]
+
+    # Le mode difficile s'applique UNIQUEMENT sur l'objectif primaire
+    if hard_mode:
+        primary_value = int(primary_value * HARD_MODE_MULTIPLIER)
+
+    # Somme des valeurs dans les sacs optimisés
+    secondary_value = sum(bag["total_value"] for bag in bags)
+
+    total = primary_value + secondary_value + SAFE_VALUE
+
+    return total

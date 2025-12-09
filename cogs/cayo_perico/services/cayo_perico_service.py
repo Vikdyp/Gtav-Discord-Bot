@@ -179,6 +179,22 @@ class CayoPericoService:
         await self.db.execute(update_sql, final_loot, heist_id)
         logger.info(f"[Cayo] Heist {heist_id} terminé (final_loot={final_loot})")
 
+    async def delete_heist(self, heist_id: int) -> None:
+        """
+        Supprime complètement un braquage de la base de données.
+        Les participants sont automatiquement supprimés (CASCADE).
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        delete_sql = """
+        DELETE FROM cayo_heists
+        WHERE id = %s;
+        """
+
+        await self.db.execute(delete_sql, heist_id)
+        logger.info(f"[Cayo] Heist {heist_id} supprimé")
+
     async def get_heist_by_message(
         self,
         guild_id: int,
