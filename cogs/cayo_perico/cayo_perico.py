@@ -108,16 +108,11 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         max_length=1,
         required=False
     )
+    # CHAMP COMBINÉ : total/bureau
     paintings = discord.ui.TextInput(
-        label="Tableaux TOTAL (0-9)",
-        placeholder="0",
-        max_length=1,
-        required=False
-    )
-    office_paintings = discord.ui.TextInput(
-        label="Tableaux dans le BUREAU (0-2)",
-        placeholder="0",
-        max_length=1,
+        label="Tableaux TOTAL/BUREAU (ex: 3/2)",
+        placeholder="ex: 3/2 ou 3",
+        max_length=3,  # "9/2" max -> 3 caractères
         required=False
     )
     weed = discord.ui.TextInput(
@@ -139,9 +134,24 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         self.service = service
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Parser les quantités
-        total_paintings = _parse_int_field(self.paintings.value)
-        office_paintings_count = _parse_int_field(self.office_paintings.value)
+        # ----- Parsing du champ "Tableaux TOTAL/BUREAU" -----
+        raw_paintings = (self.paintings.value or "").strip()
+
+        # Valeurs par défaut
+        total_paintings = 0
+        office_paintings_count = 0
+
+        if raw_paintings:
+            # Formats acceptés :
+            # "3"   -> 3 total, 0 bureau
+            # "3/2" -> 3 total, 2 bureau
+            if "/" in raw_paintings:
+                total_str, office_str = raw_paintings.split("/", 1)
+            else:
+                total_str, office_str = raw_paintings, "0"
+
+            total_paintings = _parse_int_field(total_str)
+            office_paintings_count = _parse_int_field(office_str)
 
         # Valider que les tableaux du bureau <= total tableaux
         if office_paintings_count > total_paintings:
@@ -159,6 +169,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
             )
             return
 
+        # Construire le dict des objectifs secondaires
         secondary_loot = {
             "gold": _parse_int_field(self.gold.value),
             "cocaine": _parse_int_field(self.cocaine.value),
@@ -170,10 +181,16 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         # Stocker séparément le nombre de tableaux du bureau
         self.office_paintings_count = office_paintings_count
 
-        # Créer un embed de configuration
+        # Config par défaut
         hard_mode = False
+
         # Calculer avec les sacs optimisés (solo par défaut)
-        optimized_bags = optimize_bags(secondary_loot, num_players=1, is_solo=True, office_paintings=office_paintings_count)
+        optimized_bags = optimize_bags(
+            secondary_loot,
+            num_players=1,
+            is_solo=True,
+            office_paintings=office_paintings_count
+        )
         total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, hard_mode)
 
         embed = discord.Embed(
