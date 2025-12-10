@@ -39,13 +39,24 @@ def format_money(amount: int) -> str:
     return f"{amount:,} GTA$".replace(",", " ")
 
 
-def format_bag_plan_embed(bags: List[BagPlan], participants: List[int]) -> str:
+def format_bag_plan_embed(
+    bags: List[BagPlan],
+    participants: List[int],
+    shares: Optional[List[float]] = None,
+    total_net: Optional[int] = None,
+    hard_mode: bool = False,
+    elite_bonus: Optional[int] = None
+) -> str:
     """
     Formate le plan de sac optimisé pour l'embed Discord.
 
     Args:
         bags: Plans de sac générés par optimize_bags()
         participants: Liste des discord_id des participants
+        shares: Parts de chaque joueur (ex: [50.0, 50.0])
+        total_net: Total net après frais (pour calculer les gains)
+        hard_mode: True si mode difficile
+        elite_bonus: Bonus Elite par joueur
 
     Returns:
         Texte formaté pour l'embed
@@ -71,13 +82,20 @@ def format_bag_plan_embed(bags: List[BagPlan], participants: List[int]) -> str:
         else:
             for item in bag["items"]:
                 piles_str = f"{item['piles']}x" if item['piles'] != 1.0 else "1x"
+                clicks_str = f"{item['clicks']:.1f}" if item['clicks'] != int(item['clicks']) else str(int(item['clicks']))
                 lines.append(
                     f"  • {piles_str} {item['name']} "
-                    f"({item['clicks']} clics, {item['capacity']:.1f}%) "
+                    f"({clicks_str} clics, {item['capacity']:.1f}%) "
                     f"= {format_money(item['value'])}"
                 )
 
-        lines.append(f"  💰 **Total : {format_money(bag['total_value'])}**")
+        lines.append(f"  💰 **Dans le sac : {format_money(bag['total_value'])}**")
+
+        # Ajouter le gain total avec Elite si les informations sont disponibles
+        if shares is not None and total_net is not None and elite_bonus is not None and player_idx < len(shares):
+            base_gain = int(total_net * shares[player_idx] / 100.0)
+            lines.append(f"  💰 **Total gain : {format_money(base_gain)} +{format_money(elite_bonus)} avec Elite**")
+
         lines.append("")  # Ligne vide entre joueurs
 
     return "\n".join(lines)
@@ -305,6 +323,13 @@ def format_detailed_breakdown(
         objectives_lines.append(f"   • **Total primaire : {format_money(primary_value)}**")
 
     objectives_lines.append(f"\n🎒 **Objectifs secondaires** (dans les sacs) : {format_money(secondary_value)}")
+
+    # Ajouter le détail par joueur
+    for idx, bag in enumerate(optimized_plan):
+        if idx < len(participants):
+            bag_value = bag.get("total_value", 0)
+            objectives_lines.append(f"        Joueur {idx + 1} : {format_money(bag_value)}")
+
     objectives_lines.append(f"🔐 **Coffre-fort** : {format_money(SAFE_VALUE)}")
 
     embed.add_field(

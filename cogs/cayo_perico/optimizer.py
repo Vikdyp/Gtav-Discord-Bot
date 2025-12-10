@@ -4,6 +4,7 @@ Algorithme d'optimisation pour le calculateur Cayo Perico.
 Gère les constantes des butins et l'optimisation automatique des sacs.
 """
 
+import math
 from typing import Dict, List, TypedDict
 
 
@@ -69,7 +70,7 @@ class BagItem(TypedDict):
     type: str
     name: str
     piles: float
-    clicks: int
+    clicks: float  # Peut être fractionnaire pour le dernier clic
     capacity: float
     value: int
 
@@ -211,24 +212,48 @@ def optimize_bags(
             if item["remaining"] <= 0:
                 continue
 
-            # Calculer combien de piles on peut prendre
-            piles_possible_capacity = bag["capacity_remaining"] / item["capacity_per_pile"]
-            piles_possible_stock = item["remaining"]
-            piles_to_take = min(piles_possible_capacity, piles_possible_stock)
+            # === NOUVELLE LOGIQUE BASÉE SUR LES CLICS ===
 
-            if piles_to_take < 0.01:
+            # 1. Calculer la capacité par clic
+            capacity_per_click = item["capacity_per_pile"] / item["clicks_per_pile"]
+
+            # 2. Calculer le nombre de clics maximum possible
+            max_clicks_capacity = bag["capacity_remaining"] / capacity_per_click
+            max_clicks_stock = item["remaining"] * item["clicks_per_pile"]
+
+            # 3. Nombre de clics entiers (règle générale)
+            clicks_integer = math.floor(min(max_clicks_capacity, max_clicks_stock))
+
+            # 4. Vérifier si on peut ajouter un clic fractionnaire pour remplir à 100%
+            capacity_after_integer = bag["capacity_remaining"] - (clicks_integer * capacity_per_click)
+            clicks_total = float(clicks_integer)
+
+            # EXCEPTION : Les tableaux ne peuvent PAS être pris partiellement (tout ou rien)
+            # Pour les autres items, on peut ajouter un clic fractionnaire final
+            is_painting = item["type"] == "paintings"
+
+            # Si le sac n'est pas plein et qu'il reste du stock
+            if not is_painting and capacity_after_integer > 0.01 and max_clicks_stock > clicks_integer:
+                # Calculer le clic fractionnaire pour remplir exactement
+                fractional_click = min(
+                    capacity_after_integer / capacity_per_click,  # Capacité restante en clics
+                    max_clicks_stock - clicks_integer  # Stock restant en clics
+                )
+                clicks_total = clicks_integer + fractional_click
+
+            if clicks_total < 0.01:
                 continue
 
-            # Prendre les piles
-            capacity_used = piles_to_take * item["capacity_per_pile"]
-            value_gained = piles_to_take * item["value_per_pile"]
-            clicks_needed = int(piles_to_take * item["clicks_per_pile"])
+            # 5. Calculer les valeurs réelles
+            actual_piles = clicks_total / item["clicks_per_pile"]
+            capacity_used = clicks_total * capacity_per_click
+            value_gained = actual_piles * item["value_per_pile"]
 
             bag["items"].append({
                 "type": item["type"],
                 "name": item["name"],
-                "piles": round(piles_to_take, 2),
-                "clicks": clicks_needed,
+                "piles": round(actual_piles, 2),
+                "clicks": round(clicks_total, 1),  # Garder la précision pour les clics fractionnaires
                 "capacity": round(capacity_used, 2),
                 "value": int(value_gained),
             })
@@ -236,7 +261,7 @@ def optimize_bags(
             bag["capacity_remaining"] -= capacity_used
             bag["capacity_remaining"] = max(0, bag["capacity_remaining"])  # Éviter les négatifs
             bag["total_value"] += int(value_gained)
-            item["remaining"] -= piles_to_take
+            item["remaining"] -= actual_piles
 
         bags.append(bag)
 

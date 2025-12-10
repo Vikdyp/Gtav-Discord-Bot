@@ -22,6 +22,10 @@ from .optimizer import (
     SECONDARY_TARGETS,
     calculate_estimated_loot,
     optimize_bags,
+    calculate_default_shares,
+    calculate_net_total,
+    ELITE_BONUS_NORMAL,
+    ELITE_BONUS_HARD,
 )
 from .formatters import (
     format_secondary_loot,
@@ -45,6 +49,27 @@ def _parse_int_field(value: str, min_val: int = 0, max_val: int = 9) -> int:
         return max(min_val, min(num, max_val))
     except ValueError:
         return 0
+
+
+def _calculate_bag_plan_params(primary_target: str, optimized_bags: List, hard_mode: bool, num_players: int):
+    """
+    Calcule les paramètres nécessaires pour format_bag_plan_embed().
+
+    Returns:
+        Tuple (shares, total_net, elite_bonus)
+    """
+    from .optimizer import PRIMARY_TARGETS, HARD_MODE_MULTIPLIER, SAFE_VALUE
+
+    primary_value = PRIMARY_TARGETS[primary_target]["value"]
+    if hard_mode:
+        primary_value = int(primary_value * HARD_MODE_MULTIPLIER)
+
+    secondary_value = sum(bag.get("total_value", 0) for bag in optimized_bags)
+    total_net = calculate_net_total(primary_value, secondary_value, SAFE_VALUE)
+    shares = calculate_default_shares(num_players)
+    elite_bonus = ELITE_BONUS_HARD if hard_mode else ELITE_BONUS_NORMAL
+
+    return shares, total_net, elite_bonus
 
 
 # ==================== VIEWS ET MODALS ====================
@@ -108,11 +133,10 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         max_length=1,
         required=False
     )
-    # CHAMP COMBINÉ : total/bureau
     paintings = discord.ui.TextInput(
-        label="Tableaux TOTAL/BUREAU (ex: 3/2)",
-        placeholder="ex: 3/2 ou 3",
-        max_length=3,  # "9/2" max -> 3 caractères
+        label="Tableaux (total/bureau, ex: 3/2)",
+        placeholder="0/0 ou 3 ou 3/2",
+        max_length=5,
         required=False
     )
     weed = discord.ui.TextInput(
@@ -134,24 +158,28 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         self.service = service
 
     async def on_submit(self, interaction: discord.Interaction):
-        # ----- Parsing du champ "Tableaux TOTAL/BUREAU" -----
-        raw_paintings = (self.paintings.value or "").strip()
-
-        # Valeurs par défaut
+        # Parser les tableaux : format "total/bureau" ou juste "total"
+        paintings_value = self.paintings.value.strip()
         total_paintings = 0
         office_paintings_count = 0
 
-        if raw_paintings:
-            # Formats acceptés :
-            # "3"   -> 3 total, 0 bureau
-            # "3/2" -> 3 total, 2 bureau
-            if "/" in raw_paintings:
-                total_str, office_str = raw_paintings.split("/", 1)
+        if paintings_value:
+            if "/" in paintings_value:
+                # Format "total/bureau" (ex: "3/2")
+                parts = paintings_value.split("/")
+                if len(parts) == 2:
+                    total_paintings = _parse_int_field(parts[0])
+                    office_paintings_count = _parse_int_field(parts[1], min_val=0, max_val=2)
+                else:
+                    await interaction.response.send_message(
+                        "❌ Format invalide pour les tableaux. Utilisez : total/bureau (ex: 3/2) ou juste le total (ex: 3)",
+                        ephemeral=True
+                    )
+                    return
             else:
-                total_str, office_str = raw_paintings, "0"
-
-            total_paintings = _parse_int_field(total_str)
-            office_paintings_count = _parse_int_field(office_str)
+                # Format simple : juste le total
+                total_paintings = _parse_int_field(paintings_value)
+                office_paintings_count = 0
 
         # Valider que les tableaux du bureau <= total tableaux
         if office_paintings_count > total_paintings:
@@ -169,7 +197,6 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
             )
             return
 
-        # Construire le dict des objectifs secondaires
         secondary_loot = {
             "gold": _parse_int_field(self.gold.value),
             "cocaine": _parse_int_field(self.cocaine.value),
@@ -181,16 +208,10 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         # Stocker séparément le nombre de tableaux du bureau
         self.office_paintings_count = office_paintings_count
 
-        # Config par défaut
+        # Créer un embed de configuration
         hard_mode = False
-
         # Calculer avec les sacs optimisés (solo par défaut)
-        optimized_bags = optimize_bags(
-            secondary_loot,
-            num_players=1,
-            is_solo=True,
-            office_paintings=office_paintings_count
-        )
+        optimized_bags = optimize_bags(secondary_loot, num_players=1, is_solo=True, office_paintings=office_paintings_count)
         total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, hard_mode)
 
         embed = discord.Embed(
@@ -325,9 +346,21 @@ class ConfigView(discord.ui.View):
             inline=False
         )
 
+        # Calculer les informations pour le plan de sac avec Elite
+        shares, total_net, elite_bonus = _calculate_bag_plan_params(
+            self.primary_target, optimized_bags, self.hard_mode, 1
+        )
+
         embed.add_field(
             name="🎒 Plan de sac optimisé",
-            value=format_bag_plan_embed(optimized_bags, [interaction.user.id]),
+            value=format_bag_plan_embed(
+                optimized_bags,
+                [interaction.user.id],
+                shares=shares,
+                total_net=total_net,
+                hard_mode=self.hard_mode,
+                elite_bonus=elite_bonus
+            ),
             inline=False
         )
 
@@ -500,9 +533,21 @@ class JoinButton(discord.ui.Button):
             inline=False
         )
 
+        # Calculer les informations pour le plan de sac avec Elite
+        shares, total_net, elite_bonus = _calculate_bag_plan_params(
+            heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
+        )
+
         embed.add_field(
             name="🎒 Plan de sac optimisé",
-            value=format_bag_plan_embed(optimized_bags, participants),
+            value=format_bag_plan_embed(
+                optimized_bags,
+                participants,
+                shares=shares,
+                total_net=total_net,
+                hard_mode=heist.get("hard_mode", False),
+                elite_bonus=elite_bonus
+            ),
             inline=False
         )
 
@@ -647,9 +692,21 @@ class LeaveButton(discord.ui.Button):
             inline=False
         )
 
+        # Calculer les informations pour le plan de sac avec Elite
+        shares, total_net, elite_bonus = _calculate_bag_plan_params(
+            heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
+        )
+
         embed.add_field(
             name="🎒 Plan de sac optimisé",
-            value=format_bag_plan_embed(optimized_bags, participants),
+            value=format_bag_plan_embed(
+                optimized_bags,
+                participants,
+                shares=shares,
+                total_net=total_net,
+                hard_mode=heist.get("hard_mode", False),
+                elite_bonus=elite_bonus
+            ),
             inline=False
         )
 
@@ -705,13 +762,18 @@ class ReadyButton(discord.ui.Button):
 
         # Marquer le braquage comme prêt
         await self.service.mark_ready(heist["id"])
-        await self._update_message_embed(interaction, heist)
 
-        # Récupérer le heist complet avec le plan optimisé depuis la DB
-        heist_full = await self.service.get_heist_by_id(heist["id"])
-        if heist_full is None:
+        # Récupérer le heist mis à jour depuis la BDD (avec le nouveau statut "ready")
+        heist = await self.service.get_heist_by_id(heist["id"])
+        if heist is None:
             await interaction.followup.send("Erreur : impossible de récupérer le braquage.", ephemeral=True)
             return
+
+        # Mettre à jour l'embed avec le heist fraîchement récupéré
+        await self._update_message_embed(interaction, heist)
+
+        # Le heist est maintenant à jour, pas besoin de le récupérer à nouveau
+        heist_full = heist
 
         # Envoyer le plan de sac à chaque participant en privé
         participants = await self.service.get_participants(heist["id"])
@@ -820,9 +882,21 @@ class ReadyButton(discord.ui.Button):
             inline=False
         )
 
+        # Calculer les informations pour le plan de sac avec Elite
+        shares, total_net, elite_bonus = _calculate_bag_plan_params(
+            heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
+        )
+
         embed.add_field(
             name="🎒 Plan de sac optimisé",
-            value=format_bag_plan_embed(optimized_bags, participants),
+            value=format_bag_plan_embed(
+                optimized_bags,
+                participants,
+                shares=shares,
+                total_net=total_net,
+                hard_mode=heist.get("hard_mode", False),
+                elite_bonus=elite_bonus
+            ),
             inline=False
         )
 
@@ -1167,9 +1241,21 @@ class CayoPericoView(discord.ui.View):
             inline=False
         )
 
+        # Calculer les informations pour le plan de sac avec Elite
+        shares, total_net, elite_bonus = _calculate_bag_plan_params(
+            heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
+        )
+
         embed.add_field(
             name="🎒 Plan de sac optimisé",
-            value=format_bag_plan_embed(optimized_bags, participants),
+            value=format_bag_plan_embed(
+                optimized_bags,
+                participants,
+                shares=shares,
+                total_net=total_net,
+                hard_mode=heist.get("hard_mode", False),
+                elite_bonus=elite_bonus
+            ),
             inline=False
         )
 
