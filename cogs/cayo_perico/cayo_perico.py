@@ -155,7 +155,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
         embed.add_field(
             name="ℹ️ Prochaines étapes",
-            value="• Active le **mode difficile** si nécessaire (+25% sur objectif primaire)\n"
+            value="• Active le **mode difficile** si nécessaire (+10% sur objectif primaire)\n"
                   "• Clique sur **Confirmer** pour créer le braquage",
             inline=False
         )
@@ -204,7 +204,7 @@ class ConfigView(discord.ui.View):
 
         embed.add_field(
             name="ℹ️ Prochaines étapes",
-            value="• Active le **mode difficile** si nécessaire (+25% sur objectif primaire)\n"
+            value="• Active le **mode difficile** si nécessaire (+10% sur objectif primaire)\n"
                   "• Clique sur **Confirmer** pour créer le braquage",
             inline=False
         )
@@ -415,6 +415,21 @@ class CayoPericoView(discord.ui.View):
         if heist is None:
             return
 
+        # Vérifier si déjà participant
+        participants = await self.service.get_participants(heist["id"])
+        if interaction.user.id in participants:
+            await interaction.response.send_message(
+                "Tu participes déjà à ce braquage.", ephemeral=True
+            )
+            return
+
+        # Vérifier la limite de 4 joueurs
+        if len(participants) >= 4:
+            await interaction.response.send_message(
+                "Le braquage est complet (4 joueurs maximum).", ephemeral=True
+            )
+            return
+
         # Répondre immédiatement à l'interaction
         await interaction.response.send_message(
             "Tu as rejoint le braquage.", ephemeral=True
@@ -453,6 +468,14 @@ class CayoPericoView(discord.ui.View):
             except:
                 pass  # Le message n'existe peut-être plus
 
+            return
+
+        # Vérifier si l'utilisateur est participant
+        participants = await self.service.get_participants(heist["id"])
+        if interaction.user.id not in participants:
+            await interaction.response.send_message(
+                "Tu ne participes pas à ce braquage.", ephemeral=True
+            )
             return
 
         # Répondre immédiatement à l'interaction
@@ -564,6 +587,150 @@ class CayoPericoView(discord.ui.View):
         modal = FinishHeistModal(heist, participants, self.service)
         await interaction.response.send_modal(modal)
 
+    @discord.ui.button(
+        label="⚖️ Répartir les parts",
+        style=discord.ButtonStyle.secondary,
+        custom_id="cayo_shares",
+    )
+    async def shares_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Seul l'organisateur peut modifier les parts
+        if interaction.user.id != heist["leader_id"]:
+            await interaction.response.send_message(
+                "Seul l'organisateur peut répartir les parts.",
+                ephemeral=True,
+            )
+            return
+
+        participants = await self.service.get_participants(heist["id"])
+        if len(participants) < 2:
+            await interaction.response.send_message(
+                "Il faut au moins 2 joueurs pour répartir les parts.",
+                ephemeral=True,
+            )
+            return
+
+        # Ouvrir le Modal de répartition
+        modal = SharesModal(heist, participants, self.service)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="📊 Détails",
+        style=discord.ButtonStyle.secondary,
+        custom_id="cayo_details",
+    )
+    async def details_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Récupérer le heist complet avec optimized_plan
+        heist_full = await self.service.get_heist_by_id(heist["id"])
+        if heist_full is None:
+            await interaction.response.send_message(
+                "Erreur : impossible de récupérer les détails du braquage.",
+                ephemeral=True
+            )
+            return
+
+        # Récupérer les participants et les parts personnalisées
+        participants = await self.service.get_participants(heist["id"])
+        custom_shares = await self.service.get_custom_shares(heist["id"])
+
+        # Générer l'embed détaillé
+        from cogs.cayo_perico.formatters import format_detailed_breakdown
+        embed = format_detailed_breakdown(heist_full, participants, custom_shares)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class SharesModal(discord.ui.Modal, title="Répartition des parts"):
+    """Modal pour définir les parts personnalisées (incréments de 5%, minimum 15%)."""
+
+    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService):
+        super().__init__()
+        self.heist = heist
+        self.participants = participants
+        self.service = service
+
+        # Récupérer les parts actuelles ou par défaut
+        from cogs.cayo_perico.optimizer import calculate_default_shares
+
+        current_shares = heist.get("custom_shares")
+        if current_shares is None:
+            default_shares = calculate_default_shares(len(participants))
+        else:
+            # custom_shares peut déjà être un dict avec les discord_id
+            default_shares = [current_shares.get(str(pid), 25.0) for pid in participants]
+
+        # Créer un TextInput par joueur (max 4 selon le plan)
+        for idx, participant_id in enumerate(participants[:4]):
+            default_value = str(int(default_shares[idx] if idx < len(default_shares) else 25))
+            text_input = discord.ui.TextInput(
+                label=f"Part Joueur {idx + 1} (%)",
+                placeholder="15-85 (incréments de 5)",
+                default=default_value,
+                max_length=2,
+                required=True
+            )
+            self.add_item(text_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Parser et valider les parts
+        shares = []
+        for idx, item in enumerate(self.children):
+            try:
+                value = int(item.value.strip())
+                if value < 15:
+                    await interaction.response.send_message(
+                        f"❌ Part minimum : 15% (Joueur {idx + 1} = {value}%)", ephemeral=True
+                    )
+                    return
+                if value > 85:
+                    await interaction.response.send_message(
+                        f"❌ Part maximum : 85% (Joueur {idx + 1} = {value}%)", ephemeral=True
+                    )
+                    return
+                if value % 5 != 0:
+                    await interaction.response.send_message(
+                        f"❌ Parts par incréments de 5% (Joueur {idx + 1} = {value}%)", ephemeral=True
+                    )
+                    return
+                shares.append(value)
+            except ValueError:
+                await interaction.response.send_message(
+                    f"❌ Valeur invalide pour Joueur {idx + 1}", ephemeral=True
+                )
+                return
+
+        # Vérifier total = 100%
+        if sum(shares) != 100:
+            await interaction.response.send_message(
+                f"❌ Total doit être 100% (actuel : {sum(shares)}%)", ephemeral=True
+            )
+            return
+
+        # Créer le dictionnaire {discord_id: pourcentage}
+        shares_dict = {self.participants[idx]: shares[idx] for idx in range(len(shares))}
+
+        # Sauvegarder
+        await self.service.update_custom_shares(self.heist["id"], shares_dict)
+
+        await interaction.response.send_message(
+            "✅ Parts personnalisées enregistrées !", ephemeral=True
+        )
+
 
 class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
     """Modal pour saisir les gains réels de chaque participant."""
@@ -574,10 +741,20 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         self.participants = participants
         self.service = service
 
-        # Créer un TextInput par participant (max 5 à cause limite Discord)
-        for idx, participant_id in enumerate(participants[:5]):
+        # Champ pour le Défi Elite
+        self.elite_challenge = discord.ui.TextInput(
+            label="Défi Elite validé ? (oui/non)",
+            placeholder="oui ou non",
+            max_length=3,
+            required=True,
+            default="non"
+        )
+        self.add_item(self.elite_challenge)
+
+        # Créer un TextInput par participant (max 4 selon limite joueurs)
+        for idx, participant_id in enumerate(participants[:4]):
             text_input = discord.ui.TextInput(
-                label=f"Gain de Joueur {idx + 1}",
+                label=f"Gain Joueur {idx + 1}",
                 placeholder="Ex: 450000",
                 max_length=10,
                 required=True
@@ -587,9 +764,25 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        # Parser les gains réels
+        from cogs.cayo_perico.optimizer import (
+            PRIMARY_TARGETS,
+            HARD_MODE_MULTIPLIER,
+            SAFE_VALUE,
+            calculate_default_shares,
+            calculate_net_total,
+            calculate_player_gains,
+            format_next_heist_time,
+            format_hard_mode_deadline,
+        )
+        from datetime import datetime, timezone
+
+        # Parser le défi Elite
+        elite_input = self.elite_challenge.value.strip().lower()
+        elite_completed = elite_input in ["oui", "o", "yes", "y"]
+
+        # Parser les gains réels (en ignorant le premier enfant qui est elite_challenge)
         real_gains = {}
-        for idx, item in enumerate(self.children):
+        for idx, item in enumerate(self.children[1:]):  # Skip elite_challenge
             if idx >= len(self.participants):
                 break
             participant_id = self.participants[idx]
@@ -603,16 +796,42 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         await self.service.save_real_gains(self.heist["id"], real_gains)
 
         total_real = sum(real_gains.values())
-        await self.service.close_heist(self.heist["id"], total_real)
+        finished_at = datetime.now(timezone.utc)
+        await self.service.close_heist(self.heist["id"], total_real, elite_completed, finished_at)
 
-        # Construire les gains prévus depuis le plan
+        # Calculer les gains prévus avec les nouvelles formules
+        # 1. Récupérer les infos du heist
+        primary_target = self.heist.get("primary_loot", "tequila")
+        hard_mode = self.heist.get("hard_mode", False)
         optimized_plan = self.heist.get("optimized_plan") or []
-        predicted_gains = {}
-        for idx, participant_id in enumerate(self.participants):
-            if idx < len(optimized_plan):
-                predicted_gains[participant_id] = optimized_plan[idx].get("total_value", 0)
-            else:
-                predicted_gains[participant_id] = 0
+
+        # 2. Calculer la valeur primaire (avec bonus hard mode 10% si applicable)
+        primary_value = PRIMARY_TARGETS[primary_target]["value"]
+        if hard_mode:
+            primary_value = int(primary_value * HARD_MODE_MULTIPLIER)
+
+        # 3. Calculer la valeur secondaire (somme des sacs)
+        secondary_value = sum(bag.get("total_value", 0) for bag in optimized_plan)
+
+        # 4. Calculer le total net (primaire + secondaires + coffre) × 88%
+        total_net = calculate_net_total(primary_value, secondary_value, SAFE_VALUE)
+
+        # 5. Récupérer ou calculer les parts
+        custom_shares = await self.service.get_custom_shares(self.heist["id"])
+        if custom_shares:
+            # Convertir en liste dans l'ordre des participants
+            shares = [custom_shares.get(pid, 25.0) for pid in self.participants]
+        else:
+            shares = calculate_default_shares(len(self.participants))
+
+        # 6. Calculer les gains prévus par joueur (avec bonus Elite si validé)
+        predicted_gains_list = calculate_player_gains(total_net, shares, elite_completed, hard_mode)
+        predicted_gains = {self.participants[idx]: predicted_gains_list[idx] for idx in range(len(self.participants))}
+
+        # 7. Calculer les timers cooldown
+        num_players = len(self.participants)
+        next_heist = format_next_heist_time(finished_at, num_players)
+        hard_mode_deadline = format_hard_mode_deadline(finished_at, num_players)
 
         # Afficher les résultats
         embed = discord.Embed(
@@ -626,9 +845,16 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             inline=False
         )
 
+        # Ajouter les timers cooldown
+        embed.add_field(
+            name="⏰ Prochain braquage",
+            value=f"{next_heist}\n{hard_mode_deadline}",
+            inline=False
+        )
+
         embed.add_field(
             name="Statut",
-            value="🏁 Braquage terminé et archivé",
+            value=f"🏁 Braquage terminé et archivé\n{'🏆 Défi Elite validé !' if elite_completed else ''}",
             inline=False
         )
 

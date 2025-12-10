@@ -210,10 +210,158 @@ def format_objectives_summary(
     lines = [
         f"**Principal :** {primary_info['name']} ({format_money(primary_info['value'])})",
         f"**Secondaires :** {format_secondary_loot(secondary_loot)}",
-        f"**Mode difficile :** {'✅ Oui (+25%)' if hard_mode else '❌ Non'}",
+        f"**Mode difficile :** {'✅ Oui (+10%)' if hard_mode else '❌ Non'}",
         f"**Coffre-fort :** ~60 000 GTA$",
         "",
         f"💰 **Butin total estimé : {format_money(total_loot)}**"
     ]
 
     return "\n".join(lines)
+
+
+def format_detailed_breakdown(
+    heist: Dict,
+    participants: List[int],
+    custom_shares: Optional[Dict[int, float]] = None
+) -> "discord.Embed":
+    """
+    Génère un embed détaillé avec tous les calculs (frais, parts, bonus Elite).
+
+    Args:
+        heist: Données complètes du braquage (avec optimized_plan)
+        participants: Liste des discord_id
+        custom_shares: Parts personnalisées {discord_id: pourcentage} ou None
+
+    Returns:
+        Embed Discord avec détails complets
+    """
+    import discord
+    from cogs.cayo_perico.optimizer import (
+        PRIMARY_TARGETS,
+        HARD_MODE_MULTIPLIER,
+        SAFE_VALUE,
+        PAVEL_FEE,
+        CONTACT_FEE,
+        NET_MULTIPLIER,
+        ELITE_BONUS_NORMAL,
+        ELITE_BONUS_HARD,
+        calculate_default_shares,
+        calculate_net_total,
+        calculate_player_gains,
+    )
+
+    # 1. Récupérer les infos du heist
+    primary_target = heist.get("primary_loot", "tequila")
+    hard_mode = heist.get("hard_mode", False)
+    elite_completed = heist.get("elite_challenge_completed", False)
+    optimized_plan = heist.get("optimized_plan") or []
+
+    # 2. Calculer la valeur primaire (avec bonus hard mode 10% si applicable)
+    primary_value = PRIMARY_TARGETS[primary_target]["value"]
+    primary_value_with_bonus = primary_value
+    if hard_mode:
+        primary_value_with_bonus = int(primary_value * HARD_MODE_MULTIPLIER)
+
+    # 3. Calculer la valeur secondaire (somme des sacs)
+    secondary_value = sum(bag.get("total_value", 0) for bag in optimized_plan)
+
+    # 4. Calculer le total brut
+    total_brut = primary_value_with_bonus + secondary_value + SAFE_VALUE
+
+    # 5. Déductions
+    pavel_deduction = int(total_brut * PAVEL_FEE)
+    contact_deduction = int(total_brut * CONTACT_FEE)
+    total_deductions = pavel_deduction + contact_deduction
+
+    # 6. Total net (88% du brut)
+    total_net = calculate_net_total(primary_value_with_bonus, secondary_value, SAFE_VALUE)
+
+    # 7. Récupérer ou calculer les parts
+    if custom_shares:
+        shares = [custom_shares.get(pid, 25.0) for pid in participants]
+        shares_note = "**Parts personnalisées**"
+    else:
+        shares = calculate_default_shares(len(participants))
+        shares_note = "**Parts par défaut**"
+
+    # 8. Calculer les gains par joueur (avec bonus Elite si validé)
+    predicted_gains_list = calculate_player_gains(total_net, shares, elite_completed, hard_mode)
+
+    # Construire l'embed
+    embed = discord.Embed(
+        title="📊 Détails du braquage Cayo Perico",
+        color=discord.Color.blue()
+    )
+
+    # Section 1: Objectifs
+    objectives_lines = [
+        f"🎯 **Objectif principal** : {PRIMARY_TARGETS[primary_target]['name']}",
+        f"   • Valeur de base : {format_money(primary_value)}",
+    ]
+    if hard_mode:
+        objectives_lines.append(f"   • Bonus mode difficile (+10%) : {format_money(primary_value_with_bonus - primary_value)}")
+        objectives_lines.append(f"   • **Total primaire : {format_money(primary_value_with_bonus)}**")
+    else:
+        objectives_lines.append(f"   • **Total primaire : {format_money(primary_value)}**")
+
+    objectives_lines.append(f"\n🎒 **Objectifs secondaires** (dans les sacs) : {format_money(secondary_value)}")
+    objectives_lines.append(f"🔐 **Coffre-fort** : {format_money(SAFE_VALUE)}")
+
+    embed.add_field(
+        name="💎 Objectifs et butin",
+        value="\n".join(objectives_lines),
+        inline=False
+    )
+
+    # Section 2: Calcul des frais
+    fees_lines = [
+        f"💰 **Total brut** : {format_money(total_brut)}",
+        f"",
+        f"📉 **Déductions** :",
+        f"   • Pavel (-2%) : -{format_money(pavel_deduction)}",
+        f"   • Frais contact (-10%) : -{format_money(contact_deduction)}",
+        f"   • **Total déductions** : -{format_money(total_deductions)}",
+        f"",
+        f"✅ **Total net (88%)** : {format_money(total_net)}"
+    ]
+
+    embed.add_field(
+        name="🧮 Calcul des frais",
+        value="\n".join(fees_lines),
+        inline=False
+    )
+
+    # Section 3: Répartition
+    elite_bonus = ELITE_BONUS_HARD if hard_mode else ELITE_BONUS_NORMAL
+    shares_lines = [shares_note, ""]
+
+    for idx, participant_id in enumerate(participants):
+        if idx >= len(predicted_gains_list):
+            break
+        share = shares[idx]
+        base_gain = int(total_net * share / 100.0)
+        elite_part = elite_bonus if elite_completed else 0
+        total_gain = predicted_gains_list[idx]
+
+        if elite_completed:
+            shares_lines.append(
+                f"👤 Joueur {idx + 1} ({int(share)}%) : "
+                f"{format_money(base_gain)} + {format_money(elite_part)} (Elite) = **{format_money(total_gain)}**"
+            )
+        else:
+            shares_lines.append(
+                f"👤 Joueur {idx + 1} ({int(share)}%) : **{format_money(total_gain)}**"
+            )
+
+    if elite_completed:
+        shares_lines.append(f"\n🏆 **Défi Elite validé** : +{format_money(elite_bonus)} par joueur")
+
+    embed.add_field(
+        name="⚖️ Répartition des gains",
+        value="\n".join(shares_lines),
+        inline=False
+    )
+
+    embed.set_footer(text="💡 Les frais Pavel + Contact (12%) sont appliqués sur le TOTAL BRUT (primaire + secondaires + coffre) avant répartition.")
+
+    return embed

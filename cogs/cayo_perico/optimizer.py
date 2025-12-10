@@ -39,7 +39,28 @@ SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
 }
 
 SAFE_VALUE = 60000  # Valeur fixe du coffre-fort
-HARD_MODE_MULTIPLIER = 1.25  # Bonus mode difficile
+HARD_MODE_MULTIPLIER = 1.10  # Bonus mode difficile (+10%)
+
+# Frais et déductions
+PAVEL_FEE = 0.02  # 2%
+CONTACT_FEE = 0.10  # 10%
+TOTAL_FEES = PAVEL_FEE + CONTACT_FEE  # 12% total
+NET_MULTIPLIER = 1.0 - TOTAL_FEES  # 0.88 (88% des gains)
+
+# Bonus Défi Elite
+ELITE_BONUS_NORMAL = 50000  # Bonus en mode normal
+ELITE_BONUS_HARD = 100000  # Bonus en mode difficile
+
+# Cooldown et timers
+COOLDOWN_SOLO_MINUTES = 144  # 2h24 pour solo
+COOLDOWN_MULTI_MINUTES = 48  # 48min pour 2+ joueurs
+HARD_MODE_WINDOW_MINUTES = 48  # Fenêtre de 48min pour mode difficile
+
+# Limites joueurs et parts
+MAX_PLAYERS = 4
+MIN_SHARE_PERCENT = 15
+MAX_SHARE_PERCENT = 85
+SHARE_INCREMENT = 5
 
 
 # ==================== TYPES ====================
@@ -273,7 +294,7 @@ def calculate_estimated_loot(
     Args:
         primary_target: Clé de l'objectif principal
         bags: Plans de sac optimisés générés par optimize_bags()
-        hard_mode: True si mode difficile (bonus +25% UNIQUEMENT sur primaire)
+        hard_mode: True si mode difficile (bonus +10% UNIQUEMENT sur primaire)
 
     Returns:
         Valeur totale estimée en GTA$
@@ -290,3 +311,182 @@ def calculate_estimated_loot(
     total = primary_value + secondary_value + SAFE_VALUE
 
     return total
+
+
+# ==================== NOUVELLES FONCTIONS V2 ====================
+
+
+def calculate_default_shares(num_players: int, leader_index: int = 0) -> List[float]:
+    """
+    Calcule la répartition par défaut selon le nombre de joueurs.
+    Avantage légèrement le leader (index 0) tout en respectant les incréments de 5%.
+
+    Args:
+        num_players: Nombre de joueurs (1-4)
+        leader_index: Index du leader (par défaut 0)
+
+    Returns:
+        Liste de pourcentages [50.0, 50.0] pour 2 joueurs, etc.
+
+    Examples:
+        2 joueurs: [50.0, 50.0]
+        3 joueurs: [40.0, 30.0, 30.0]
+        4 joueurs: [40.0, 20.0, 20.0, 20.0]
+    """
+    if num_players == 1:
+        return [100.0]
+    elif num_players == 2:
+        return [50.0, 50.0]
+    elif num_players == 3:
+        return [40.0, 30.0, 30.0]
+    elif num_players == 4:
+        return [40.0, 20.0, 20.0, 20.0]
+    else:
+        # Fallback: répartition égale
+        equal_share = 100.0 / num_players
+        return [equal_share] * num_players
+
+
+def calculate_net_total(primary_value: int, secondary_value: int, safe_value: int = SAFE_VALUE) -> int:
+    """
+    Applique les frais Pavel (-2%) et Contact (-10%) sur le TOTAL BRUT.
+
+    Args:
+        primary_value: Valeur objectif primaire (avec bonus hard mode si applicable)
+        secondary_value: Valeur des objectifs secondaires dans les sacs
+        safe_value: Valeur du coffre-fort (60 000 GTA$ par défaut)
+
+    Returns:
+        Valeur nette totale après frais (88% du total brut)
+
+    Formula:
+        total_brut = primary + secondary + safe
+        total_net = total_brut × 0.88
+    """
+    total_brut = primary_value + secondary_value + safe_value
+    total_net = int(total_brut * NET_MULTIPLIER)
+    return total_net
+
+
+def calculate_player_gains(
+    total_net: int,
+    shares: List[float],
+    elite_completed: bool,
+    hard_mode: bool
+) -> List[int]:
+    """
+    Calcule les gains individuels par joueur.
+
+    Args:
+        total_net: Valeur NETTE totale après frais Pavel/Contact (88% du brut)
+        shares: Pourcentages par joueur [50.0, 50.0]
+        elite_completed: True si défi Elite validé
+        hard_mode: True si mode difficile (pour bonus Elite)
+
+    Returns:
+        Liste des gains par joueur en GTA$
+
+    Formula:
+        - Gain joueur = (total_net × share / 100) + bonus_elite
+        - bonus_elite = 50 000 (normal) ou 100 000 (difficile) si validé
+    """
+    gains = []
+    elite_bonus = ELITE_BONUS_HARD if hard_mode else ELITE_BONUS_NORMAL
+
+    for share in shares:
+        # Gain de base selon la part
+        base_gain = int(total_net * share / 100.0)
+
+        # Ajouter le bonus Elite si validé
+        if elite_completed:
+            base_gain += elite_bonus
+
+        gains.append(base_gain)
+
+    return gains
+
+
+def format_next_heist_time(finished_at, num_players: int) -> str:
+    """
+    Calcule et formate le temps restant avant le prochain braquage.
+
+    Args:
+        finished_at: datetime de fin du braquage (timezone-aware)
+        num_players: Nombre de joueurs (1 = solo, 2+ = multi)
+
+    Returns:
+        "Disponible dans 1h23min" ou "Disponible maintenant"
+    """
+    from datetime import datetime, timezone, timedelta
+
+    # Déterminer le cooldown
+    cooldown_minutes = COOLDOWN_SOLO_MINUTES if num_players == 1 else COOLDOWN_MULTI_MINUTES
+
+    # Calculer le moment où le prochain braquage sera disponible
+    next_available = finished_at + timedelta(minutes=cooldown_minutes)
+
+    # Temps restant
+    now = datetime.now(timezone.utc)
+    time_remaining = next_available - now
+
+    if time_remaining.total_seconds() <= 0:
+        return "✅ Disponible maintenant"
+
+    # Formater en heures et minutes
+    total_minutes = int(time_remaining.total_seconds() / 60)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+
+    if hours > 0:
+        return f"⏳ Disponible dans {hours}h{minutes:02d}min"
+    else:
+        return f"⏳ Disponible dans {minutes}min"
+
+
+def format_hard_mode_deadline(finished_at, num_players: int) -> str:
+    """
+    Calcule et formate le temps restant pour le mode difficile.
+
+    Args:
+        finished_at: datetime de fin du braquage (timezone-aware)
+        num_players: Nombre de joueurs (1 = solo, 2+ = multi)
+
+    Returns:
+        "Mode difficile encore 32min" ou "Mode difficile expiré"
+    """
+    from datetime import datetime, timezone, timedelta
+
+    # Le mode difficile est disponible pendant 48min APRÈS que le braquage soit à nouveau disponible
+    cooldown_minutes = COOLDOWN_SOLO_MINUTES if num_players == 1 else COOLDOWN_MULTI_MINUTES
+    next_available = finished_at + timedelta(minutes=cooldown_minutes)
+    hard_mode_deadline = next_available + timedelta(minutes=HARD_MODE_WINDOW_MINUTES)
+
+    # Temps restant
+    now = datetime.now(timezone.utc)
+    time_remaining = hard_mode_deadline - now
+
+    if time_remaining.total_seconds() <= 0:
+        return "❌ Mode difficile expiré"
+
+    # Si le braquage n'est pas encore disponible, le mode difficile n'a pas encore commencé
+    if now < next_available:
+        # Temps avant que le mode difficile commence
+        time_until_available = next_available - now
+        total_minutes = int(time_until_available.total_seconds() / 60)
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+
+        if hours > 0:
+            return f"🔒 Mode difficile disponible dans {hours}h{minutes:02d}min (durée: 48min)"
+        else:
+            return f"🔒 Mode difficile disponible dans {minutes}min (durée: 48min)"
+
+    # Le mode difficile est actuellement disponible
+    total_minutes = int(time_remaining.total_seconds() / 60)
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+
+    if hours > 0:
+        return f"⚡ Mode difficile encore {hours}h{minutes:02d}min"
+    else:
+        return f"⚡ Mode difficile encore {minutes}min"

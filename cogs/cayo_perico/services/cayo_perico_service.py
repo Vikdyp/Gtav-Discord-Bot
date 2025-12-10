@@ -161,23 +161,50 @@ class CayoPericoService:
         await self.db.execute(update_sql, heist_id)
         logger.info(f"[Cayo] Heist {heist_id} marqué comme prêt")
 
-    async def close_heist(self, heist_id: int, final_loot: Optional[int] = None) -> None:
+    async def close_heist(
+        self,
+        heist_id: int,
+        final_loot: Optional[int] = None,
+        elite_completed: bool = False,
+        finished_at: Optional[Any] = None
+    ) -> None:
         """
-        Passe le braquage en statut 'finished' et enregistre éventuellement le butin final.
+        Passe le braquage en statut 'finished' et enregistre les informations finales.
+
+        Args:
+            heist_id: ID du braquage
+            final_loot: Butin final total (optionnel)
+            elite_completed: True si le défi Elite a été validé
+            finished_at: Horodatage de fin (datetime, optionnel, NOW() par défaut)
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        update_sql = """
-        UPDATE cayo_heists
-        SET status = 'finished',
-            final_loot = %s,
-            updated_at = NOW()
-        WHERE id = %s;
-        """
+        # Si finished_at n'est pas fourni, utiliser NOW()
+        if finished_at is None:
+            update_sql = """
+            UPDATE cayo_heists
+            SET status = 'finished',
+                final_loot = %s,
+                elite_challenge_completed = %s,
+                finished_at = NOW(),
+                updated_at = NOW()
+            WHERE id = %s;
+            """
+            await self.db.execute(update_sql, final_loot, elite_completed, heist_id)
+        else:
+            update_sql = """
+            UPDATE cayo_heists
+            SET status = 'finished',
+                final_loot = %s,
+                elite_challenge_completed = %s,
+                finished_at = %s,
+                updated_at = NOW()
+            WHERE id = %s;
+            """
+            await self.db.execute(update_sql, final_loot, elite_completed, finished_at, heist_id)
 
-        await self.db.execute(update_sql, final_loot, heist_id)
-        logger.info(f"[Cayo] Heist {heist_id} terminé (final_loot={final_loot})")
+        logger.info(f"[Cayo] Heist {heist_id} terminé (final_loot={final_loot}, elite={elite_completed})")
 
     async def delete_heist(self, heist_id: int) -> None:
         """
@@ -435,3 +462,86 @@ class CayoPericoService:
             "avg_accuracy": round(float(row[2]), 2) if row[2] else 0.0,
             "total_earned": int(row[3]) if row[3] else 0,
         }
+
+    async def update_custom_shares(self, heist_id: int, shares: Dict[int, float]) -> None:
+        """
+        Met à jour les parts personnalisées pour un braquage.
+
+        Args:
+            heist_id: ID du braquage
+            shares: Dictionnaire {discord_id: pourcentage}
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        import json
+
+        # Convertir les clés en string pour JSONB
+        shares_json = {str(k): v for k, v in shares.items()}
+
+        update_sql = """
+        UPDATE cayo_heists
+        SET custom_shares = %s,
+            updated_at = NOW()
+        WHERE id = %s;
+        """
+
+        await self.db.execute(update_sql, json.dumps(shares_json), heist_id)
+        logger.info(f"[Cayo] Parts personnalisées mises à jour pour heist {heist_id}")
+
+    async def get_custom_shares(self, heist_id: int) -> Optional[Dict[int, float]]:
+        """
+        Récupère les parts personnalisées d'un braquage.
+
+        Args:
+            heist_id: ID du braquage
+
+        Returns:
+            {discord_id: pourcentage} ou None si parts par défaut
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        select_sql = """
+        SELECT custom_shares
+        FROM cayo_heists
+        WHERE id = %s;
+        """
+
+        row = await self.db.fetchrow(select_sql, heist_id)
+
+        if row is None or row[0] is None:
+            return None
+
+        import json
+
+        # Convertir les clés string en int
+        shares_json = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        return {int(k): v for k, v in shares_json.items()}
+
+    async def is_participant(self, heist_id: int, user_discord_id: int) -> bool:
+        """
+        Vérifie si un utilisateur est participant à un braquage.
+
+        Args:
+            heist_id: ID du braquage
+            user_discord_id: ID Discord de l'utilisateur
+
+        Returns:
+            True si participant, False sinon
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        user_id = await self._get_or_create_user(user_discord_id)
+
+        select_sql = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM cayo_participants
+            WHERE heist_id = %s AND user_id = %s
+        );
+        """
+
+        row = await self.db.fetchrow(select_sql, heist_id, user_id)
+        return row[0] if row else False
