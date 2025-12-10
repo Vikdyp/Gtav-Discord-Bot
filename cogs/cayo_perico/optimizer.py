@@ -122,7 +122,8 @@ def calculate_total_loot(
 def optimize_bags(
     secondary_loot: Dict[str, int],
     num_players: int,
-    is_solo: bool = False
+    is_solo: bool = False,
+    office_paintings: int = 0
 ) -> List[BagPlan]:
     """
     Optimise la répartition du butin secondaire dans les sacs des joueurs.
@@ -134,6 +135,7 @@ def optimize_bags(
         secondary_loot: Quantités disponibles {"gold": 3, "cocaine": 2, ...}
         num_players: Nombre de joueurs
         is_solo: True si un seul joueur (restreint certains loots)
+        office_paintings: Nombre de tableaux dans le bureau (0-2, accessibles en solo)
 
     Returns:
         Liste de plans de sac, un par joueur
@@ -145,6 +147,31 @@ def optimize_bags(
             continue
 
         info = SECONDARY_TARGETS[loot_type]
+
+        # Cas spécial : tableaux du bureau (accessibles en solo)
+        if is_solo and loot_type == "paintings" and office_paintings > 0:
+            # Séparer les tableaux en deux catégories :
+            # - Ceux du bureau (accessibles en solo)
+            # - Les autres (non accessibles en solo)
+            office_count = min(office_paintings, quantity)
+            other_count = quantity - office_count
+
+            # Ajouter les tableaux du bureau (accessibles en solo)
+            if office_count > 0:
+                value_per_percent = info["value"] / info["capacity"]
+                items.append({
+                    "type": loot_type,
+                    "name": f"{info['name']} (bureau)",
+                    "total_quantity": office_count,
+                    "remaining": float(office_count),
+                    "value_per_pile": info["value"],
+                    "capacity_per_pile": info["capacity"],
+                    "clicks_per_pile": info["clicks"],
+                    "value_per_percent": value_per_percent,
+                })
+
+            # Les autres tableaux ne sont pas accessibles en solo, donc on les ignore
+            continue
 
         # Ignorer les items interdits en solo
         if is_solo and not info["solo"]:

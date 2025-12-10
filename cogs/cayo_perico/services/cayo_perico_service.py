@@ -107,9 +107,13 @@ class CayoPericoService:
         primary_loot: str,
         secondary_loot: Dict[str, int],
         estimated_loot: Optional[int] = None,
+        office_paintings: int = 0,
     ) -> int:
         """
         Crée un braquage Cayo Perico et renvoie son ID.
+
+        Args:
+            office_paintings: Nombre de tableaux dans le bureau (0-2, accessibles en solo)
 
         Raises:
             ValueError: Si le leader a déjà un braquage actif
@@ -129,9 +133,9 @@ class CayoPericoService:
         INSERT INTO cayo_heists (
             guild_id, channel_id, message_id,
             leader_user_id,
-            primary_loot, secondary_loot, estimated_loot
+            primary_loot, secondary_loot, estimated_loot, office_paintings
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id;
         """
 
@@ -144,6 +148,7 @@ class CayoPericoService:
             primary_loot,
             json.dumps(secondary_loot),
             estimated_loot,
+            office_paintings,
         )
 
         if row is None:
@@ -440,7 +445,8 @@ class CayoPericoService:
             h.ready_at,
             h.finished_at,
             h.elite_challenge_completed,
-            h.custom_shares
+            h.custom_shares,
+            h.office_paintings
         FROM cayo_heists h
         JOIN users u ON h.leader_user_id = u.id
         WHERE h.id = %s;
@@ -472,6 +478,7 @@ class CayoPericoService:
             "finished_at": row[16],
             "elite_challenge_completed": row[17],
             "custom_shares": row[18] if row[18] else None,
+            "office_paintings": row[19] if row[19] else 0,
         }
 
     async def get_user_statistics(self, discord_id: int) -> Dict[str, Any]:

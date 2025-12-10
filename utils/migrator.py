@@ -180,6 +180,44 @@ class Migrator:
             logger.error(f"[Migrator] Erreur lors de la migration 003 : {e}")
             return False, f"❌ Erreur lors de la migration : {str(e)}"
 
+    async def check_office_paintings_column(self) -> bool:
+        """
+        Vérifie si la migration 004 (colonne office_paintings) a été appliquée.
+
+        Returns:
+            True si la migration est appliquée, False sinon
+        """
+        return await self._column_exists("cayo_heists", "office_paintings")
+
+    async def apply_office_paintings_migration(self) -> tuple[bool, str]:
+        """
+        Applique la migration 004 (ajout de office_paintings).
+
+        Returns:
+            Tuple (success, message)
+        """
+        try:
+            if await self.check_office_paintings_column():
+                return True, "✅ Migration déjà appliquée (rien à faire)"
+
+            # Lire le fichier
+            migration_file = Path("migrations/004_add_office_paintings.sql")
+            if not migration_file.exists():
+                return False, f"❌ Fichier de migration introuvable : {migration_file}"
+
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+
+            # Exécuter
+            await self.db.execute(sql)
+
+            logger.info("[Migrator] Migration 004 (office_paintings) appliquée avec succès")
+            return True, "✅ Migration 004 (office_paintings) appliquée avec succès !"
+
+        except Exception as e:
+            logger.error(f"[Migrator] Erreur lors de la migration 004 : {e}")
+            return False, f"❌ Erreur lors de la migration : {str(e)}"
+
     async def get_migration_status(self) -> str:
         """
         Récupère le statut de toutes les migrations.
@@ -203,6 +241,11 @@ class Migrator:
         ready_at_applied = await self.check_ready_at_column()
         status_ready = "✅ Appliquée" if ready_at_applied else "⏳ En attente"
         lines.append(f"• **Ready At Column** (003): {status_ready}")
+
+        # Office Paintings Column
+        office_paintings_applied = await self.check_office_paintings_column()
+        status_office = "✅ Appliquée" if office_paintings_applied else "⏳ En attente"
+        lines.append(f"• **Office Paintings Column** (004): {status_office}")
 
         # Vérifier les tables de base
         users_exists = await self._table_exists("users")

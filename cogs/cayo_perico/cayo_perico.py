@@ -109,7 +109,13 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         required=False
     )
     paintings = discord.ui.TextInput(
-        label="Tableaux (0-9)",
+        label="Tableaux TOTAL (0-9)",
+        placeholder="0",
+        max_length=1,
+        required=False
+    )
+    office_paintings = discord.ui.TextInput(
+        label="Tableaux dans le BUREAU (0-2)",
         placeholder="0",
         max_length=1,
         required=False
@@ -134,18 +140,40 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
     async def on_submit(self, interaction: discord.Interaction):
         # Parser les quantités
+        total_paintings = _parse_int_field(self.paintings.value)
+        office_paintings_count = _parse_int_field(self.office_paintings.value)
+
+        # Valider que les tableaux du bureau <= total tableaux
+        if office_paintings_count > total_paintings:
+            await interaction.response.send_message(
+                f"❌ Les tableaux dans le bureau ({office_paintings_count}) ne peuvent pas être supérieurs au total ({total_paintings}).",
+                ephemeral=True
+            )
+            return
+
+        # Valider que les tableaux du bureau <= 2
+        if office_paintings_count > 2:
+            await interaction.response.send_message(
+                "❌ Maximum 2 tableaux dans le bureau.",
+                ephemeral=True
+            )
+            return
+
         secondary_loot = {
             "gold": _parse_int_field(self.gold.value),
             "cocaine": _parse_int_field(self.cocaine.value),
-            "paintings": _parse_int_field(self.paintings.value),
+            "paintings": total_paintings,
             "weed": _parse_int_field(self.weed.value),
             "cash": _parse_int_field(self.cash.value),
         }
 
+        # Stocker séparément le nombre de tableaux du bureau
+        self.office_paintings_count = office_paintings_count
+
         # Créer un embed de configuration
         hard_mode = False
         # Calculer avec les sacs optimisés (solo par défaut)
-        optimized_bags = optimize_bags(secondary_loot, num_players=1, is_solo=True)
+        optimized_bags = optimize_bags(secondary_loot, num_players=1, is_solo=True, office_paintings=office_paintings_count)
         total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, hard_mode)
 
         embed = discord.Embed(
@@ -159,6 +187,14 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
             color=discord.Color.gold()
         )
 
+        # Ajouter info sur les tableaux du bureau si présents
+        if office_paintings_count > 0:
+            embed.add_field(
+                name="🖼️ Tableaux du bureau",
+                value=f"✅ **{office_paintings_count} tableau{'x' if office_paintings_count > 1 else ''}** dans le bureau (accessible en solo)",
+                inline=False
+            )
+
         embed.add_field(
             name="ℹ️ Prochaines étapes",
             value="• Active le **mode difficile** si nécessaire (+10% sur objectif primaire)\n"
@@ -167,19 +203,20 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         )
 
         # View avec boutons de configuration
-        view = ConfigView(self.primary_target, secondary_loot, self.service)
+        view = ConfigView(self.primary_target, secondary_loot, self.service, office_paintings_count)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class ConfigView(discord.ui.View):
     """View pour configurer le mode difficile et confirmer."""
 
-    def __init__(self, primary_target: str, secondary_loot: Dict[str, int], service: CayoPericoService):
+    def __init__(self, primary_target: str, secondary_loot: Dict[str, int], service: CayoPericoService, office_paintings: int = 0):
         super().__init__(timeout=300)
         self.primary_target = primary_target
         self.secondary_loot = secondary_loot
         self.hard_mode = False
         self.service = service
+        self.office_paintings = office_paintings
 
     @discord.ui.button(
         label="Mode difficile : ❌ Non",
@@ -194,7 +231,7 @@ class ConfigView(discord.ui.View):
         button.style = discord.ButtonStyle.success if self.hard_mode else discord.ButtonStyle.secondary
 
         # Recalculer et mettre à jour l'embed
-        optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True)
+        optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True, office_paintings=self.office_paintings)
         total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode)
 
         embed = discord.Embed(
@@ -207,6 +244,14 @@ class ConfigView(discord.ui.View):
             ),
             color=discord.Color.gold()
         )
+
+        # Ajouter info sur les tableaux du bureau si présents
+        if self.office_paintings > 0:
+            embed.add_field(
+                name="🖼️ Tableaux du bureau",
+                value=f"✅ **{self.office_paintings} tableau{'x' if self.office_paintings > 1 else ''}** dans le bureau (accessible en solo)",
+                inline=False
+            )
 
         embed.add_field(
             name="ℹ️ Prochaines étapes",
@@ -233,7 +278,7 @@ class ConfigView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         # Optimiser les sacs et calculer le butin estimé RÉEL
-        optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True)
+        optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True, office_paintings=self.office_paintings)
         total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode)
 
         # Créer l'embed final
@@ -285,6 +330,7 @@ class ConfigView(discord.ui.View):
                 primary_loot=self.primary_target,
                 secondary_loot=self.secondary_loot,
                 estimated_loot=total_loot,
+                office_paintings=self.office_paintings,
             )
         except ValueError as e:
             # Braquage actif déjà existant - supprimer le message créé
@@ -388,7 +434,8 @@ class JoinButton(discord.ui.Button):
         optimized_bags = optimize_bags(
             heist["secondary_loot"],
             num_players=num_players,
-            is_solo=(num_players == 1)
+            is_solo=(num_players == 1),
+            office_paintings=heist.get("office_paintings", 0)
         )
 
         # Sauvegarder le nouveau plan
@@ -534,7 +581,8 @@ class LeaveButton(discord.ui.Button):
         optimized_bags = optimize_bags(
             heist["secondary_loot"],
             num_players=num_players,
-            is_solo=(num_players == 1)
+            is_solo=(num_players == 1),
+            office_paintings=heist.get("office_paintings", 0)
         )
 
         # Sauvegarder le nouveau plan
@@ -706,7 +754,8 @@ class ReadyButton(discord.ui.Button):
         optimized_bags = optimize_bags(
             heist["secondary_loot"],
             num_players=num_players,
-            is_solo=(num_players == 1)
+            is_solo=(num_players == 1),
+            office_paintings=heist.get("office_paintings", 0)
         )
 
         # Sauvegarder le nouveau plan
@@ -1052,7 +1101,8 @@ class CayoPericoView(discord.ui.View):
         optimized_bags = optimize_bags(
             heist["secondary_loot"],
             num_players=num_players,
-            is_solo=(num_players == 1)
+            is_solo=(num_players == 1),
+            office_paintings=heist.get("office_paintings", 0)
         )
 
         # Sauvegarder le nouveau plan

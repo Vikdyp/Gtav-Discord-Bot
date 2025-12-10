@@ -190,6 +190,7 @@ class GeneralCommands(commands.Cog):
             app_commands.Choice(name="Appliquer Cayo Perico V2", value="apply_cayo_v2"),
             app_commands.Choice(name="Appliquer Cayo Perico V2 Additions", value="apply_cayo_v2_add"),
             app_commands.Choice(name="Appliquer Ready At (003)", value="apply_ready_at"),
+            app_commands.Choice(name="Appliquer Office Paintings (004)", value="apply_office_paintings"),
         ]
     )
     async def migrate(
@@ -311,6 +312,33 @@ class GeneralCommands(commands.Cog):
                     self.logger.info(f"[Migrate] Migration Ready At (003) appliquée par {interaction.user}")
                 else:
                     self.logger.warning(f"[Migrate] Échec de la migration Ready At (003) : {message}")
+
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Erreur critique",
+                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
+
+        # ---- ACTION: APPLY OFFICE PAINTINGS (004) ----
+        elif action_value == "apply_office_paintings":
+            try:
+                success, message = await migrator.apply_office_paintings_migration()
+
+                embed = discord.Embed(
+                    title="🔄 Migration Office Paintings (004)",
+                    description=message,
+                    color=discord.Color.green() if success else discord.Color.red()
+                )
+
+                await interaction.followup.send(embed=embed)
+
+                if success:
+                    self.logger.info(f"[Migrate] Migration Office Paintings (004) appliquée par {interaction.user}")
+                else:
+                    self.logger.warning(f"[Migrate] Échec de la migration Office Paintings (004) : {message}")
 
             except Exception as e:
                 embed = discord.Embed(
