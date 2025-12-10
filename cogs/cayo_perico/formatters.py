@@ -3,7 +3,7 @@
 Fonctions de formatage pour les messages et embeds du Cayo Perico.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from .optimizer import PRIMARY_TARGETS, SECONDARY_TARGETS, BagPlan
 
 
