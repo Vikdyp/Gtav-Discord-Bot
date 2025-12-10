@@ -490,3 +490,35 @@ def format_hard_mode_deadline(finished_at, num_players: int) -> str:
         return f"⚡ Mode difficile encore {hours}h{minutes:02d}min"
     else:
         return f"⚡ Mode difficile encore {minutes}min"
+
+
+def format_duration(start_time, end_time) -> str:
+    """
+    Formate une durée entre deux timestamps.
+
+    Args:
+        start_time: datetime de début
+        end_time: datetime de fin
+
+    Returns:
+        Chaîne formatée "Xmin Ys" ou "XhYYmin"
+    """
+    if start_time is None or end_time is None:
+        return "N/A"
+
+    delta = end_time - start_time
+    total_seconds = int(delta.total_seconds())
+
+    if total_seconds < 0:
+        return "N/A"
+
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+
+    if hours > 0:
+        return f"{hours}h{minutes:02d}min"
+    elif minutes > 0:
+        return f"{minutes}min {seconds}s"
+    else:
+        return f"{seconds}s"

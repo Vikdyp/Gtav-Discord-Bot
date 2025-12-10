@@ -142,6 +142,44 @@ class Migrator:
             logger.error(f"[Migrator] Erreur lors de la migration : {e}")
             return False, f"❌ Erreur lors de la migration : {str(e)}"
 
+    async def check_ready_at_column(self) -> bool:
+        """
+        Vérifie si la migration 003 (colonne ready_at) a été appliquée.
+
+        Returns:
+            True si la migration est appliquée, False sinon
+        """
+        return await self._column_exists("cayo_heists", "ready_at")
+
+    async def apply_ready_at_migration(self) -> tuple[bool, str]:
+        """
+        Applique la migration 003 (ajout de ready_at).
+
+        Returns:
+            Tuple (success, message)
+        """
+        try:
+            if await self.check_ready_at_column():
+                return True, "✅ Migration déjà appliquée (rien à faire)"
+
+            # Lire le fichier
+            migration_file = Path("migrations/003_add_ready_at.sql")
+            if not migration_file.exists():
+                return False, f"❌ Fichier de migration introuvable : {migration_file}"
+
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+
+            # Exécuter
+            await self.db.execute(sql)
+
+            logger.info("[Migrator] Migration 003 (ready_at) appliquée avec succès")
+            return True, "✅ Migration 003 (ready_at) appliquée avec succès !"
+
+        except Exception as e:
+            logger.error(f"[Migrator] Erreur lors de la migration 003 : {e}")
+            return False, f"❌ Erreur lors de la migration : {str(e)}"
+
     async def get_migration_status(self) -> str:
         """
         Récupère le statut de toutes les migrations.
@@ -160,6 +198,11 @@ class Migrator:
         cayo_v2_add_applied = await self.check_cayo_v2_additions()
         status_add = "✅ Appliquée" if cayo_v2_add_applied else "⏳ En attente"
         lines.append(f"• **Cayo Perico V2 Additions** (002): {status_add}")
+
+        # Ready At Column
+        ready_at_applied = await self.check_ready_at_column()
+        status_ready = "✅ Appliquée" if ready_at_applied else "⏳ En attente"
+        lines.append(f"• **Ready At Column** (003): {status_ready}")
 
         # Vérifier les tables de base
         users_exists = await self._table_exists("users")

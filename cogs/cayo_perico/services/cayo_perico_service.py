@@ -60,6 +60,44 @@ class CayoPericoService:
         logger.info(f"[Cayo] Nouvel utilisateur créé (discord_id={discord_id}, id={user_id})")
         return user_id
 
+    async def has_active_heist(self, leader_discord_id: int) -> bool:
+        """
+        Vérifie si un leader a déjà un braquage actif (pending ou ready).
+
+        Args:
+            leader_discord_id: ID Discord du leader
+
+        Returns:
+            True si un braquage actif existe, False sinon
+        """
+        if self.db is None:
+            raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        # Récupérer l'ID interne du leader (ne pas créer s'il n'existe pas)
+        select_user_sql = """
+        SELECT id
+        FROM users
+        WHERE discord_id = %s;
+        """
+
+        user_row = await self.db.fetchrow(select_user_sql, leader_discord_id)
+        if user_row is None:
+            return False  # Si l'utilisateur n'existe pas, pas de braquage actif
+
+        leader_user_id = user_row[0]
+
+        query = """
+        SELECT EXISTS (
+            SELECT 1
+            FROM cayo_heists
+            WHERE leader_user_id = %s
+              AND status IN ('pending', 'ready')
+        );
+        """
+
+        row = await self.db.fetchrow(query, leader_user_id)
+        return row[0] if row else False
+
     async def create_heist(
         self,
         guild_id: int,
@@ -72,9 +110,16 @@ class CayoPericoService:
     ) -> int:
         """
         Crée un braquage Cayo Perico et renvoie son ID.
+
+        Raises:
+            ValueError: Si le leader a déjà un braquage actif
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
+
+        # Vérifier qu'il n'y a pas déjà un braquage actif pour ce leader
+        if await self.has_active_heist(leader_discord_id):
+            raise ValueError("Tu as déjà un braquage actif. Termine-le avant d'en créer un nouveau.")
 
         leader_user_id = await self._get_or_create_user(leader_discord_id)
 
@@ -146,7 +191,7 @@ class CayoPericoService:
 
     async def mark_ready(self, heist_id: int) -> None:
         """
-        Passe le braquage en statut 'ready'.
+        Passe le braquage en statut 'ready' et enregistre l'horodatage.
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
@@ -154,6 +199,7 @@ class CayoPericoService:
         update_sql = """
         UPDATE cayo_heists
         SET status = 'ready',
+            ready_at = NOW(),
             updated_at = NOW()
         WHERE id = %s;
         """
@@ -390,7 +436,11 @@ class CayoPericoService:
             h.safe_amount,
             h.optimized_plan,
             h.created_at,
-            h.updated_at
+            h.updated_at,
+            h.ready_at,
+            h.finished_at,
+            h.elite_challenge_completed,
+            h.custom_shares
         FROM cayo_heists h
         JOIN users u ON h.leader_user_id = u.id
         WHERE h.id = %s;
@@ -400,8 +450,6 @@ class CayoPericoService:
 
         if row is None:
             return None
-
-        import json
 
         return {
             "id": row[0],
@@ -416,9 +464,14 @@ class CayoPericoService:
             "status": row[9],
             "hard_mode": row[10],
             "safe_amount": row[11],
-            "optimized_plan": json.loads(row[12]) if row[12] else [],
+            # JSONB PostgreSQL retourne déjà un dict/list Python avec psycopg
+            "optimized_plan": row[12] if row[12] else [],
             "created_at": row[13],
             "updated_at": row[14],
+            "ready_at": row[15],
+            "finished_at": row[16],
+            "elite_challenge_completed": row[17],
+            "custom_shares": row[18] if row[18] else None,
         }
 
     async def get_user_statistics(self, discord_id: int) -> Dict[str, Any]:
