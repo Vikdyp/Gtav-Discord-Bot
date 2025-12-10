@@ -189,6 +189,7 @@ class GeneralCommands(commands.Cog):
             app_commands.Choice(name="Voir le statut", value="status"),
             app_commands.Choice(name="Appliquer Cayo Perico V2", value="apply_cayo_v2"),
             app_commands.Choice(name="Appliquer Cayo Perico V2 Additions", value="apply_cayo_v2_add"),
+            app_commands.Choice(name="Appliquer Ready At (003)", value="apply_ready_at"),
         ]
     )
     async def migrate(
@@ -283,6 +284,33 @@ class GeneralCommands(commands.Cog):
                     self.logger.info(f"[Migrate] Migration Cayo V2 Additions appliquée par {interaction.user}")
                 else:
                     self.logger.warning(f"[Migrate] Échec de la migration Cayo V2 Additions : {message}")
+
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Erreur critique",
+                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
+
+        # ---- ACTION: APPLY READY AT (003) ----
+        elif action_value == "apply_ready_at":
+            try:
+                success, message = await migrator.apply_ready_at_migration()
+
+                embed = discord.Embed(
+                    title="🔄 Migration Ready At (003)",
+                    description=message,
+                    color=discord.Color.green() if success else discord.Color.red()
+                )
+
+                await interaction.followup.send(embed=embed)
+
+                if success:
+                    self.logger.info(f"[Migrate] Migration Ready At (003) appliquée par {interaction.user}")
+                else:
+                    self.logger.warning(f"[Migrate] Échec de la migration Ready At (003) : {message}")
 
             except Exception as e:
                 embed = discord.Embed(
