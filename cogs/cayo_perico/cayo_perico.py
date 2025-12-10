@@ -78,6 +78,12 @@ class PrimaryTargetSelect(discord.ui.Select):
         modal = SecondaryTargetsModal(primary_target, self.service)
         await interaction.response.send_modal(modal)
 
+        # Supprimer le message du Select
+        try:
+            await interaction.message.delete()
+        except:
+            pass  # Ignorer si le message ne peut pas être supprimé
+
 
 class PrimaryTargetView(discord.ui.View):
     """View contenant le Select pour l'objectif principal."""
@@ -269,16 +275,25 @@ class ConfigView(discord.ui.View):
         # Envoyer dans le channel
         message = await interaction.channel.send(embed=embed, view=view)
 
-        # Créer le braquage en DB
-        heist_id = await self.service.create_heist(
-            guild_id=interaction.guild.id,
-            channel_id=message.channel.id,
-            message_id=message.id,
-            leader_discord_id=interaction.user.id,
-            primary_loot=self.primary_target,
-            secondary_loot=self.secondary_loot,
-            estimated_loot=total_loot,
-        )
+        # Créer le braquage en DB (peut lever ValueError si braquage actif)
+        try:
+            heist_id = await self.service.create_heist(
+                guild_id=interaction.guild.id,
+                channel_id=message.channel.id,
+                message_id=message.id,
+                leader_discord_id=interaction.user.id,
+                primary_loot=self.primary_target,
+                secondary_loot=self.secondary_loot,
+                estimated_loot=total_loot,
+            )
+        except ValueError as e:
+            # Braquage actif déjà existant - supprimer le message créé
+            await message.delete()
+            await interaction.followup.send(
+                f"❌ {str(e)}",
+                ephemeral=True
+            )
+            return
 
         # Sauvegarder le plan optimisé
         await self.service.update_optimized_plan(heist_id, optimized_bags)
@@ -286,23 +301,718 @@ class ConfigView(discord.ui.View):
         # Ajouter l'organisateur comme participant
         await self.service.add_participant(heist_id, interaction.user.id)
 
+        # Supprimer le message de configuration
+        try:
+            await interaction.message.delete()
+        except:
+            pass  # Ignorer si impossible (message ephemeral)
+
         await interaction.followup.send(
             "✅ Braquage Cayo Perico créé avec succès !",
             ephemeral=True
         )
 
 
+# ==================== BOUTONS INDIVIDUELS ====================
+
+class JoinButton(discord.ui.Button):
+    """Bouton pour rejoindre un braquage."""
+
+    def __init__(self, service: CayoPericoService):
+        super().__init__(
+            label="Rejoindre le braquage",
+            style=discord.ButtonStyle.success,
+            custom_id="cayo_join"
+        )
+        self.service = service
+
+    async def callback(self, interaction: discord.Interaction):
+        # Récupérer le heist
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Vérifier si déjà participant
+        participants = await self.service.get_participants(heist["id"])
+        if interaction.user.id in participants:
+            await interaction.response.send_message(
+                "Tu participes déjà à ce braquage.", ephemeral=True
+            )
+            return
+
+        # Vérifier la limite de 4 joueurs
+        if len(participants) >= 4:
+            await interaction.response.send_message(
+                "Le braquage est complet (4 joueurs maximum).", ephemeral=True
+            )
+            return
+
+        # Répondre immédiatement à l'interaction
+        await interaction.response.send_message(
+            "Tu as rejoint le braquage.", ephemeral=True
+        )
+
+        # Ajouter le participant et recalculer le plan
+        await self.service.add_participant(heist["id"], interaction.user.id)
+        await self._update_message_embed(interaction, heist)
+
+    async def _get_heist_for_interaction(self, interaction: discord.Interaction):
+        """Récupère le heist lié au message du bouton."""
+        if interaction.guild is None or interaction.channel is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Cette action n'est pas disponible ici.", ephemeral=True
+            )
+            return None
+
+        heist = await self.service.get_heist_by_message(
+            guild_id=interaction.guild.id,
+            channel_id=interaction.channel.id,
+            message_id=interaction.message.id,
+        )
+
+        if heist is None:
+            await interaction.response.send_message(
+                "Impossible de retrouver ce braquage (peut-être déjà supprimé).",
+                ephemeral=True,
+            )
+            return None
+
+        return heist
+
+    async def _update_message_embed(self, interaction: discord.Interaction, heist: Dict):
+        """Met à jour l'embed du message en fonction des données BDD."""
+        participants = await self.service.get_participants(heist["id"])
+        num_players = len(participants)
+
+        # Recalculer le plan de sac
+        optimized_bags = optimize_bags(
+            heist["secondary_loot"],
+            num_players=num_players,
+            is_solo=(num_players == 1)
+        )
+
+        # Sauvegarder le nouveau plan
+        await self.service.update_optimized_plan(heist["id"], optimized_bags)
+
+        # Recalculer le butin estimé RÉEL
+        total_loot = calculate_estimated_loot(
+            heist["primary_loot"],
+            optimized_bags,
+            heist.get("hard_mode", False)
+        )
+
+        # Construire le nouvel embed
+        status_label = {
+            "pending": "⏳ En préparation",
+            "ready": "✅ Prêt",
+            "finished": "🏁 Terminé",
+            "cancelled": "❌ Annulé",
+        }.get(heist.get("status", "pending"), "⏳ En préparation")
+
+        embed = discord.Embed(
+            title="💣 Préparation Cayo Perico",
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(name="Organisateur", value=f"<@{heist['leader_id']}>", inline=True)
+        embed.add_field(name="Statut", value=status_label, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        embed.add_field(
+            name="🎯 Objectifs",
+            value=format_objectives_summary(
+                heist["primary_loot"],
+                heist["secondary_loot"],
+                heist.get("hard_mode", False),
+                total_loot
+            ),
+            inline=False
+        )
+
+        participants_mentions = ", ".join(f"<@{uid}>" for uid in participants)
+        embed.add_field(
+            name=f"👥 Participants ({len(participants)})",
+            value=participants_mentions,
+            inline=False
+        )
+
+        embed.add_field(
+            name="🎒 Plan de sac optimisé",
+            value=format_bag_plan_embed(optimized_bags, participants),
+            inline=False
+        )
+
+        # Recréer la vue avec le bon statut
+        current_status = heist.get("status", "pending")
+        new_view = CayoPericoView(self.service, heist_status=current_status, num_participants=num_players)
+
+        try:
+            await interaction.message.edit(embed=embed, view=new_view)
+        except Exception as e:
+            logger.error(f"[Cayo] Erreur lors de la mise à jour du message: {e}")
+
+
+class LeaveButton(discord.ui.Button):
+    """Bouton pour quitter un braquage."""
+
+    def __init__(self, service: CayoPericoService):
+        super().__init__(
+            label="Quitter",
+            style=discord.ButtonStyle.danger,
+            custom_id="cayo_leave"
+        )
+        self.service = service
+
+    async def callback(self, interaction: discord.Interaction):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Si l'organisateur quitte, supprimer le braquage
+        if interaction.user.id == heist["leader_id"]:
+            await interaction.response.send_message(
+                "Tu es l'organisateur, le braquage va être supprimé.", ephemeral=True
+            )
+
+            # Supprimer le braquage
+            await self.service.delete_heist(heist["id"])
+
+            # Supprimer le message
+            try:
+                await interaction.message.delete()
+            except:
+                pass
+
+            return
+
+        # Vérifier si l'utilisateur est participant
+        participants = await self.service.get_participants(heist["id"])
+        if interaction.user.id not in participants:
+            await interaction.response.send_message(
+                "Tu ne participes pas à ce braquage.", ephemeral=True
+            )
+            return
+
+        # Répondre immédiatement à l'interaction
+        await interaction.response.send_message(
+            "Tu as quitté le braquage.", ephemeral=True
+        )
+
+        # Retirer le participant et recalculer le plan
+        await self.service.remove_participant(heist["id"], interaction.user.id)
+        await self._update_message_embed(interaction, heist)
+
+    async def _get_heist_for_interaction(self, interaction: discord.Interaction):
+        """Récupère le heist lié au message du bouton."""
+        if interaction.guild is None or interaction.channel is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Cette action n'est pas disponible ici.", ephemeral=True
+            )
+            return None
+
+        heist = await self.service.get_heist_by_message(
+            guild_id=interaction.guild.id,
+            channel_id=interaction.channel.id,
+            message_id=interaction.message.id,
+        )
+
+        if heist is None:
+            await interaction.response.send_message(
+                "Impossible de retrouver ce braquage (peut-être déjà supprimé).",
+                ephemeral=True,
+            )
+            return None
+
+        return heist
+
+    async def _update_message_embed(self, interaction: discord.Interaction, heist: Dict):
+        """Met à jour l'embed du message en fonction des données BDD."""
+        participants = await self.service.get_participants(heist["id"])
+        num_players = len(participants)
+
+        # Recalculer le plan de sac
+        optimized_bags = optimize_bags(
+            heist["secondary_loot"],
+            num_players=num_players,
+            is_solo=(num_players == 1)
+        )
+
+        # Sauvegarder le nouveau plan
+        await self.service.update_optimized_plan(heist["id"], optimized_bags)
+
+        # Recalculer le butin estimé RÉEL
+        total_loot = calculate_estimated_loot(
+            heist["primary_loot"],
+            optimized_bags,
+            heist.get("hard_mode", False)
+        )
+
+        # Construire le nouvel embed
+        status_label = {
+            "pending": "⏳ En préparation",
+            "ready": "✅ Prêt",
+            "finished": "🏁 Terminé",
+            "cancelled": "❌ Annulé",
+        }.get(heist.get("status", "pending"), "⏳ En préparation")
+
+        embed = discord.Embed(
+            title="💣 Préparation Cayo Perico",
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(name="Organisateur", value=f"<@{heist['leader_id']}>", inline=True)
+        embed.add_field(name="Statut", value=status_label, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        embed.add_field(
+            name="🎯 Objectifs",
+            value=format_objectives_summary(
+                heist["primary_loot"],
+                heist["secondary_loot"],
+                heist.get("hard_mode", False),
+                total_loot
+            ),
+            inline=False
+        )
+
+        participants_mentions = ", ".join(f"<@{uid}>" for uid in participants)
+        embed.add_field(
+            name=f"👥 Participants ({len(participants)})",
+            value=participants_mentions,
+            inline=False
+        )
+
+        embed.add_field(
+            name="🎒 Plan de sac optimisé",
+            value=format_bag_plan_embed(optimized_bags, participants),
+            inline=False
+        )
+
+        # Recréer la vue avec le bon statut
+        current_status = heist.get("status", "pending")
+        new_view = CayoPericoView(self.service, heist_status=current_status, num_participants=num_players)
+
+        try:
+            await interaction.message.edit(embed=embed, view=new_view)
+        except Exception as e:
+            logger.error(f"[Cayo] Erreur lors de la mise à jour du message: {e}")
+
+
+class ReadyButton(discord.ui.Button):
+    """Bouton pour marquer le braquage comme prêt."""
+
+    def __init__(self, service: CayoPericoService):
+        super().__init__(
+            label="🏁 Braquage prêt",
+            style=discord.ButtonStyle.primary,
+            custom_id="cayo_ready"
+        )
+        self.service = service
+
+    async def callback(self, interaction: discord.Interaction):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Seul l'organisateur peut marquer le braquage prêt
+        if interaction.user.id != heist["leader_id"]:
+            await interaction.response.send_message(
+                "Seul l'organisateur peut marquer le braquage comme prêt.",
+                ephemeral=True,
+            )
+            return
+
+        # Vérifier que le braquage n'est pas déjà prêt ou terminé
+        if heist.get("status") != "pending":
+            status_msg = {
+                "ready": "Le braquage est déjà marqué comme prêt.",
+                "finished": "Le braquage est déjà terminé.",
+                "cancelled": "Le braquage a été annulé.",
+            }.get(heist.get("status"), "Le braquage n'est plus en préparation.")
+
+            await interaction.response.send_message(
+                status_msg,
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Marquer le braquage comme prêt
+        await self.service.mark_ready(heist["id"])
+        await self._update_message_embed(interaction, heist)
+
+        # Récupérer le heist complet avec le plan optimisé depuis la DB
+        heist_full = await self.service.get_heist_by_id(heist["id"])
+        if heist_full is None:
+            await interaction.followup.send("Erreur : impossible de récupérer le braquage.", ephemeral=True)
+            return
+
+        # Envoyer le plan de sac à chaque participant en privé
+        participants = await self.service.get_participants(heist["id"])
+        optimized_plan = heist_full.get("optimized_plan") or []
+
+        for idx, participant_id in enumerate(participants):
+            if idx >= len(optimized_plan):
+                continue
+
+            try:
+                user = interaction.guild.get_member(participant_id)
+                if user:
+                    bag_plan = optimized_plan[idx]
+                    dm_embed = format_bag_plan_private(bag_plan, idx + 1)
+                    await user.send(embed=dm_embed)
+            except Exception as e:
+                logger.warning(f"[Cayo] Impossible d'envoyer le plan à l'utilisateur {participant_id}: {e}")
+
+        # Calculer le temps de préparation
+        from cogs.cayo_perico.optimizer import format_duration
+        prep_time = format_duration(heist_full.get("created_at"), heist_full.get("ready_at"))
+
+        await interaction.followup.send(
+            f"✅ Braquage marqué comme prêt !\n⏱️ Temps de préparation : **{prep_time}**\n📨 Les plans de sac ont été envoyés en privé aux participants.",
+            ephemeral=True
+        )
+
+    async def _get_heist_for_interaction(self, interaction: discord.Interaction):
+        """Récupère le heist lié au message du bouton."""
+        if interaction.guild is None or interaction.channel is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Cette action n'est pas disponible ici.", ephemeral=True
+            )
+            return None
+
+        heist = await self.service.get_heist_by_message(
+            guild_id=interaction.guild.id,
+            channel_id=interaction.channel.id,
+            message_id=interaction.message.id,
+        )
+
+        if heist is None:
+            await interaction.response.send_message(
+                "Impossible de retrouver ce braquage (peut-être déjà supprimé).",
+                ephemeral=True,
+            )
+            return None
+
+        return heist
+
+    async def _update_message_embed(self, interaction: discord.Interaction, heist: Dict):
+        """Met à jour l'embed du message en fonction des données BDD."""
+        participants = await self.service.get_participants(heist["id"])
+        num_players = len(participants)
+
+        # Recalculer le plan de sac
+        optimized_bags = optimize_bags(
+            heist["secondary_loot"],
+            num_players=num_players,
+            is_solo=(num_players == 1)
+        )
+
+        # Sauvegarder le nouveau plan
+        await self.service.update_optimized_plan(heist["id"], optimized_bags)
+
+        # Recalculer le butin estimé RÉEL
+        total_loot = calculate_estimated_loot(
+            heist["primary_loot"],
+            optimized_bags,
+            heist.get("hard_mode", False)
+        )
+
+        # Construire le nouvel embed
+        status_label = {
+            "pending": "⏳ En préparation",
+            "ready": "✅ Prêt",
+            "finished": "🏁 Terminé",
+            "cancelled": "❌ Annulé",
+        }.get(heist.get("status", "pending"), "⏳ En préparation")
+
+        embed = discord.Embed(
+            title="💣 Préparation Cayo Perico",
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(name="Organisateur", value=f"<@{heist['leader_id']}>", inline=True)
+        embed.add_field(name="Statut", value=status_label, inline=True)
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        embed.add_field(
+            name="🎯 Objectifs",
+            value=format_objectives_summary(
+                heist["primary_loot"],
+                heist["secondary_loot"],
+                heist.get("hard_mode", False),
+                total_loot
+            ),
+            inline=False
+        )
+
+        participants_mentions = ", ".join(f"<@{uid}>" for uid in participants)
+        embed.add_field(
+            name=f"👥 Participants ({len(participants)})",
+            value=participants_mentions,
+            inline=False
+        )
+
+        embed.add_field(
+            name="🎒 Plan de sac optimisé",
+            value=format_bag_plan_embed(optimized_bags, participants),
+            inline=False
+        )
+
+        # Recréer la vue avec le bon statut
+        current_status = heist.get("status", "pending")
+        new_view = CayoPericoView(self.service, heist_status=current_status, num_participants=num_players)
+
+        try:
+            await interaction.message.edit(embed=embed, view=new_view)
+        except Exception as e:
+            logger.error(f"[Cayo] Erreur lors de la mise à jour du message: {e}")
+
+
+class EliteSelectView(discord.ui.View):
+    """View pour sélectionner si le Défi Elite a été validé."""
+
+    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService):
+        super().__init__(timeout=120)  # 2 minutes de timeout
+        self.heist = heist
+        self.participants = participants
+        self.service = service
+        self.elite_completed = False
+
+    @discord.ui.select(
+        placeholder="Le Défi Elite a-t-il été validé ?",
+        options=[
+            discord.SelectOption(label="Non", value="no", emoji="❌", default=True),
+            discord.SelectOption(label="Oui", value="yes", emoji="✅"),
+        ]
+    )
+    async def elite_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.elite_completed = (select.values[0] == "yes")
+
+        # Ouvrir le Modal pour saisir les gains
+        modal = FinishHeistModal(self.heist, self.participants, self.service, self.elite_completed)
+        await interaction.response.send_modal(modal)
+
+        # Désactiver la vue
+        self.stop()
+
+
+class FinishButton(discord.ui.Button):
+    """Bouton pour terminer le braquage."""
+
+    def __init__(self, service: CayoPericoService):
+        super().__init__(
+            label="🏁 Terminer",
+            style=discord.ButtonStyle.primary,
+            custom_id="cayo_finish"
+        )
+        self.service = service
+
+    async def callback(self, interaction: discord.Interaction):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Seul l'organisateur peut terminer
+        if interaction.user.id != heist["leader_id"]:
+            await interaction.response.send_message(
+                "Seul l'organisateur peut terminer le braquage.",
+                ephemeral=True,
+            )
+            return
+
+        # Ouvrir la vue de sélection du Défi Elite
+        participants = await self.service.get_participants(heist["id"])
+        view = EliteSelectView(heist, participants, self.service)
+        await interaction.response.send_message(
+            "🏆 Le Défi Elite a-t-il été validé pendant le braquage ?",
+            view=view,
+            ephemeral=True
+        )
+
+    async def _get_heist_for_interaction(self, interaction: discord.Interaction):
+        """Récupère le heist lié au message du bouton."""
+        if interaction.guild is None or interaction.channel is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Cette action n'est pas disponible ici.", ephemeral=True
+            )
+            return None
+
+        heist = await self.service.get_heist_by_message(
+            guild_id=interaction.guild.id,
+            channel_id=interaction.channel.id,
+            message_id=interaction.message.id,
+        )
+
+        if heist is None:
+            await interaction.response.send_message(
+                "Impossible de retrouver ce braquage (peut-être déjà supprimé).",
+                ephemeral=True,
+            )
+            return None
+
+        return heist
+
+
+class SharesButton(discord.ui.Button):
+    """Bouton pour répartir les parts."""
+
+    def __init__(self, service: CayoPericoService):
+        super().__init__(
+            label="⚖️ Répartir les parts",
+            style=discord.ButtonStyle.secondary,
+            custom_id="cayo_shares"
+        )
+        self.service = service
+
+    async def callback(self, interaction: discord.Interaction):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Seul l'organisateur peut modifier les parts
+        if interaction.user.id != heist["leader_id"]:
+            await interaction.response.send_message(
+                "Seul l'organisateur peut répartir les parts.",
+                ephemeral=True,
+            )
+            return
+
+        participants = await self.service.get_participants(heist["id"])
+        if len(participants) < 2:
+            await interaction.response.send_message(
+                "Il faut au moins 2 joueurs pour répartir les parts.",
+                ephemeral=True,
+            )
+            return
+
+        # Ouvrir le Modal de répartition
+        modal = SharesModal(heist, participants, self.service)
+        await interaction.response.send_modal(modal)
+
+    async def _get_heist_for_interaction(self, interaction: discord.Interaction):
+        """Récupère le heist lié au message du bouton."""
+        if interaction.guild is None or interaction.channel is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Cette action n'est pas disponible ici.", ephemeral=True
+            )
+            return None
+
+        heist = await self.service.get_heist_by_message(
+            guild_id=interaction.guild.id,
+            channel_id=interaction.channel.id,
+            message_id=interaction.message.id,
+        )
+
+        if heist is None:
+            await interaction.response.send_message(
+                "Impossible de retrouver ce braquage (peut-être déjà supprimé).",
+                ephemeral=True,
+            )
+            return None
+
+        return heist
+
+
+class DetailsButton(discord.ui.Button):
+    """Bouton pour afficher les détails."""
+
+    def __init__(self, service: CayoPericoService):
+        super().__init__(
+            label="📊 Détails",
+            style=discord.ButtonStyle.secondary,
+            custom_id="cayo_details"
+        )
+        self.service = service
+
+    async def callback(self, interaction: discord.Interaction):
+        heist = await self._get_heist_for_interaction(interaction)
+        if heist is None:
+            return
+
+        # Récupérer le heist complet avec optimized_plan
+        heist_full = await self.service.get_heist_by_id(heist["id"])
+        if heist_full is None:
+            await interaction.response.send_message(
+                "Erreur : impossible de récupérer les détails du braquage.",
+                ephemeral=True
+            )
+            return
+
+        # Récupérer les participants et les parts personnalisées
+        participants = await self.service.get_participants(heist["id"])
+        custom_shares = await self.service.get_custom_shares(heist["id"])
+
+        # Générer l'embed détaillé
+        from cogs.cayo_perico.formatters import format_detailed_breakdown
+        embed = format_detailed_breakdown(heist_full, participants, custom_shares)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def _get_heist_for_interaction(self, interaction: discord.Interaction):
+        """Récupère le heist lié au message du bouton."""
+        if interaction.guild is None or interaction.channel is None or interaction.message is None:
+            await interaction.response.send_message(
+                "Cette action n'est pas disponible ici.", ephemeral=True
+            )
+            return None
+
+        heist = await self.service.get_heist_by_message(
+            guild_id=interaction.guild.id,
+            channel_id=interaction.channel.id,
+            message_id=interaction.message.id,
+        )
+
+        if heist is None:
+            await interaction.response.send_message(
+                "Impossible de retrouver ce braquage (peut-être déjà supprimé).",
+                ephemeral=True,
+            )
+            return None
+
+        return heist
+
+
 # ==================== VIEW PRINCIPALE (PERSISTANTE) ====================
 
 class CayoPericoView(discord.ui.View):
     """
-    View des boutons Cayo Perico.
+    View des boutons Cayo Perico avec affichage conditionnel selon le statut.
     timeout=None -> boutons persistants tant que le bot tourne.
     """
 
-    def __init__(self, service: CayoPericoService):
+    def __init__(self, service: CayoPericoService, heist_status: str = "pending", num_participants: int = 1):
         super().__init__(timeout=None)
         self.service = service
+        self.heist_status = heist_status
+        self.num_participants = num_participants
+
+        # Configurer les boutons selon le statut
+        self._setup_buttons()
+
+    def _setup_buttons(self):
+        """Configure les boutons selon le statut du braquage."""
+        # Toujours visible : bouton Détails
+        self.add_item(DetailsButton(self.service))
+
+        if self.heist_status == "pending":
+            # Phase de préparation
+            self.add_item(JoinButton(self.service))
+            self.add_item(LeaveButton(self.service))
+            self.add_item(ReadyButton(self.service))
+
+        elif self.heist_status == "ready":
+            # Phase prête (braquage lancé)
+            self.add_item(LeaveButton(self.service))
+            self.add_item(FinishButton(self.service))
+            # Répartir les parts uniquement si 2+ joueurs
+            if self.num_participants >= 2:
+                self.add_item(SharesButton(self.service))
+
+        elif self.heist_status == "finished":
+            # Braquage terminé, seul le bouton Détails reste
+            pass
 
     async def _get_heist_for_interaction(
         self, interaction: discord.Interaction
@@ -396,263 +1106,14 @@ class CayoPericoView(discord.ui.View):
             inline=False
         )
 
+        # Recréer la vue avec le bon statut
+        current_status = heist.get("status", "pending")
+        new_view = CayoPericoView(self.service, heist_status=current_status, num_participants=num_players)
+
         try:
-            await interaction.message.edit(embed=embed, view=self)
+            await interaction.message.edit(embed=embed, view=new_view)
         except Exception as e:
             logger.error(f"[Cayo] Erreur lors de la mise à jour du message: {e}")
-
-    @discord.ui.button(
-        label="Rejoindre le braquage",
-        style=discord.ButtonStyle.success,
-        custom_id="cayo_join",
-    )
-    async def join_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        heist = await self._get_heist_for_interaction(interaction)
-        if heist is None:
-            return
-
-        # Vérifier si déjà participant
-        participants = await self.service.get_participants(heist["id"])
-        if interaction.user.id in participants:
-            await interaction.response.send_message(
-                "Tu participes déjà à ce braquage.", ephemeral=True
-            )
-            return
-
-        # Vérifier la limite de 4 joueurs
-        if len(participants) >= 4:
-            await interaction.response.send_message(
-                "Le braquage est complet (4 joueurs maximum).", ephemeral=True
-            )
-            return
-
-        # Répondre immédiatement à l'interaction
-        await interaction.response.send_message(
-            "Tu as rejoint le braquage.", ephemeral=True
-        )
-
-        # Ajouter le participant et recalculer le plan
-        await self.service.add_participant(heist["id"], interaction.user.id)
-        await self._update_message_embed(interaction, heist)
-
-    @discord.ui.button(
-        label="Quitter",
-        style=discord.ButtonStyle.danger,
-        custom_id="cayo_leave",
-    )
-    async def leave_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        heist = await self._get_heist_for_interaction(interaction)
-        if heist is None:
-            return
-
-        # Si l'organisateur quitte, supprimer le braquage
-        if interaction.user.id == heist["leader_id"]:
-            await interaction.response.send_message(
-                "Tu es l'organisateur, le braquage va être supprimé.", ephemeral=True
-            )
-
-            # Supprimer le braquage
-            await self.service.delete_heist(heist["id"])
-
-            # Supprimer le message
-            try:
-                await interaction.message.delete()
-            except:
-                pass  # Le message n'existe peut-être plus
-
-            return
-
-        # Vérifier si l'utilisateur est participant
-        participants = await self.service.get_participants(heist["id"])
-        if interaction.user.id not in participants:
-            await interaction.response.send_message(
-                "Tu ne participes pas à ce braquage.", ephemeral=True
-            )
-            return
-
-        # Répondre immédiatement à l'interaction
-        await interaction.response.send_message(
-            "Tu as quitté le braquage.", ephemeral=True
-        )
-
-        # Retirer le participant et recalculer le plan
-        await self.service.remove_participant(heist["id"], interaction.user.id)
-        await self._update_message_embed(interaction, heist)
-
-    @discord.ui.button(
-        label="Braquage prêt",
-        style=discord.ButtonStyle.primary,
-        custom_id="cayo_ready",
-    )
-    async def ready_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        heist = await self._get_heist_for_interaction(interaction)
-        if heist is None:
-            return
-
-        # Seul l'organisateur peut marquer le braquage prêt
-        if interaction.user.id != heist["leader_id"]:
-            await interaction.response.send_message(
-                "Seul l'organisateur peut marquer le braquage comme prêt.",
-                ephemeral=True,
-            )
-            return
-
-        # Vérifier que le braquage n'est pas déjà prêt ou terminé
-        if heist.get("status") != "pending":
-            status_msg = {
-                "ready": "Le braquage est déjà marqué comme prêt.",
-                "finished": "Le braquage est déjà terminé.",
-                "cancelled": "Le braquage a été annulé.",
-            }.get(heist.get("status"), "Le braquage n'est plus en préparation.")
-
-            await interaction.response.send_message(
-                status_msg,
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # Marquer le braquage comme prêt
-        await self.service.mark_ready(heist["id"])
-        await self._update_message_embed(interaction, heist)
-
-        # Récupérer le heist complet avec le plan optimisé depuis la DB
-        heist_full = await self.service.get_heist_by_id(heist["id"])
-        if heist_full is None:
-            await interaction.followup.send("Erreur : impossible de récupérer le braquage.", ephemeral=True)
-            return
-
-        # Envoyer le plan de sac à chaque participant en privé
-        participants = await self.service.get_participants(heist["id"])
-        optimized_plan = heist_full.get("optimized_plan") or []
-
-        for idx, participant_id in enumerate(participants):
-            if idx >= len(optimized_plan):
-                continue
-
-            try:
-                user = interaction.guild.get_member(participant_id)
-                if user:
-                    bag_info = optimized_plan[idx]
-                    private_msg = format_bag_plan_private(bag_info, idx + 1)
-                    await user.send(
-                        f"📋 **Ton plan de sac pour le Cayo de <@{heist['leader_id']}>**\n\n{private_msg}"
-                    )
-            except:
-                pass  # L'utilisateur a bloqué les DM
-
-        await interaction.followup.send(
-            f"✅ Le Cayo Perico de <@{heist['leader_id']}> est prêt !\n"
-            f"📨 Chaque participant a reçu son plan de sac en privé.",
-            allowed_mentions=discord.AllowedMentions(users=True),
-        )
-
-    @discord.ui.button(
-        label="🏁 Terminer",
-        style=discord.ButtonStyle.secondary,
-        custom_id="cayo_finish",
-    )
-    async def finish_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        heist = await self._get_heist_for_interaction(interaction)
-        if heist is None:
-            return
-
-        # Seul l'organisateur peut terminer
-        if interaction.user.id != heist["leader_id"]:
-            await interaction.response.send_message(
-                "Seul l'organisateur peut terminer le braquage.",
-                ephemeral=True,
-            )
-            return
-
-        # Ouvrir Modal pour saisir les gains réels
-        participants = await self.service.get_participants(heist["id"])
-        modal = FinishHeistModal(heist, participants, self.service)
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(
-        label="⚖️ Répartir les parts",
-        style=discord.ButtonStyle.secondary,
-        custom_id="cayo_shares",
-    )
-    async def shares_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        heist = await self._get_heist_for_interaction(interaction)
-        if heist is None:
-            return
-
-        # Seul l'organisateur peut modifier les parts
-        if interaction.user.id != heist["leader_id"]:
-            await interaction.response.send_message(
-                "Seul l'organisateur peut répartir les parts.",
-                ephemeral=True,
-            )
-            return
-
-        participants = await self.service.get_participants(heist["id"])
-        if len(participants) < 2:
-            await interaction.response.send_message(
-                "Il faut au moins 2 joueurs pour répartir les parts.",
-                ephemeral=True,
-            )
-            return
-
-        # Ouvrir le Modal de répartition
-        modal = SharesModal(heist, participants, self.service)
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(
-        label="📊 Détails",
-        style=discord.ButtonStyle.secondary,
-        custom_id="cayo_details",
-    )
-    async def details_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
-    ):
-        heist = await self._get_heist_for_interaction(interaction)
-        if heist is None:
-            return
-
-        # Récupérer le heist complet avec optimized_plan
-        heist_full = await self.service.get_heist_by_id(heist["id"])
-        if heist_full is None:
-            await interaction.response.send_message(
-                "Erreur : impossible de récupérer les détails du braquage.",
-                ephemeral=True
-            )
-            return
-
-        # Récupérer les participants et les parts personnalisées
-        participants = await self.service.get_participants(heist["id"])
-        custom_shares = await self.service.get_custom_shares(heist["id"])
-
-        # Générer l'embed détaillé
-        from cogs.cayo_perico.formatters import format_detailed_breakdown
-        embed = format_detailed_breakdown(heist_full, participants, custom_shares)
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class SharesModal(discord.ui.Modal, title="Répartition des parts"):
@@ -735,21 +1196,12 @@ class SharesModal(discord.ui.Modal, title="Répartition des parts"):
 class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
     """Modal pour saisir les gains réels de chaque participant."""
 
-    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService):
+    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService, elite_completed: bool):
         super().__init__()
         self.heist = heist
         self.participants = participants
         self.service = service
-
-        # Champ pour le Défi Elite
-        self.elite_challenge = discord.ui.TextInput(
-            label="Défi Elite validé ? (oui/non)",
-            placeholder="oui ou non",
-            max_length=3,
-            required=True,
-            default="non"
-        )
-        self.add_item(self.elite_challenge)
+        self.elite_completed = elite_completed  # Déjà déterminé par le Select
 
         # Créer un TextInput par participant (max 4 selon limite joueurs)
         for idx, participant_id in enumerate(participants[:4]):
@@ -773,16 +1225,13 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             calculate_player_gains,
             format_next_heist_time,
             format_hard_mode_deadline,
+            format_duration,
         )
         from datetime import datetime, timezone
 
-        # Parser le défi Elite
-        elite_input = self.elite_challenge.value.strip().lower()
-        elite_completed = elite_input in ["oui", "o", "yes", "y"]
-
-        # Parser les gains réels (en ignorant le premier enfant qui est elite_challenge)
+        # Parser les gains réels (tous les enfants sont maintenant des TextInput de gains)
         real_gains = {}
-        for idx, item in enumerate(self.children[1:]):  # Skip elite_challenge
+        for idx, item in enumerate(self.children):
             if idx >= len(self.participants):
                 break
             participant_id = self.participants[idx]
@@ -797,13 +1246,19 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
 
         total_real = sum(real_gains.values())
         finished_at = datetime.now(timezone.utc)
-        await self.service.close_heist(self.heist["id"], total_real, elite_completed, finished_at)
+        await self.service.close_heist(self.heist["id"], total_real, self.elite_completed, finished_at)
+
+        # Récupérer le heist complet avec tous les timestamps
+        heist_full = await self.service.get_heist_by_id(self.heist["id"])
+        if heist_full is None:
+            await interaction.followup.send("Erreur : impossible de récupérer le braquage.", ephemeral=True)
+            return
 
         # Calculer les gains prévus avec les nouvelles formules
         # 1. Récupérer les infos du heist
-        primary_target = self.heist.get("primary_loot", "tequila")
-        hard_mode = self.heist.get("hard_mode", False)
-        optimized_plan = self.heist.get("optimized_plan") or []
+        primary_target = heist_full.get("primary_loot", "tequila")
+        hard_mode = heist_full.get("hard_mode", False)
+        optimized_plan = heist_full.get("optimized_plan") or []
 
         # 2. Calculer la valeur primaire (avec bonus hard mode 10% si applicable)
         primary_value = PRIMARY_TARGETS[primary_target]["value"]
@@ -825,10 +1280,14 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             shares = calculate_default_shares(len(self.participants))
 
         # 6. Calculer les gains prévus par joueur (avec bonus Elite si validé)
-        predicted_gains_list = calculate_player_gains(total_net, shares, elite_completed, hard_mode)
+        predicted_gains_list = calculate_player_gains(total_net, shares, self.elite_completed, hard_mode)
         predicted_gains = {self.participants[idx]: predicted_gains_list[idx] for idx in range(len(self.participants))}
 
-        # 7. Calculer les timers cooldown
+        # 7. Calculer les temps de préparation et mission
+        prep_time = format_duration(heist_full.get("created_at"), heist_full.get("ready_at"))
+        mission_time = format_duration(heist_full.get("ready_at"), heist_full.get("finished_at"))
+
+        # 8. Calculer les timers cooldown
         num_players = len(self.participants)
         next_heist = format_next_heist_time(finished_at, num_players)
         hard_mode_deadline = format_hard_mode_deadline(finished_at, num_players)
@@ -845,6 +1304,16 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             inline=False
         )
 
+        # Ajouter les temps
+        embed.add_field(
+            name="⏱️ Statistiques de temps",
+            value=(
+                f"• Temps de préparation : **{prep_time}**\n"
+                f"• Temps de mission : **{mission_time}**"
+            ),
+            inline=False
+        )
+
         # Ajouter les timers cooldown
         embed.add_field(
             name="⏰ Prochain braquage",
@@ -854,7 +1323,7 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
 
         embed.add_field(
             name="Statut",
-            value=f"🏁 Braquage terminé et archivé\n{'🏆 Défi Elite validé !' if elite_completed else ''}",
+            value=f"🏁 Braquage terminé et archivé\n{'🏆 Défi Elite validé !' if self.elite_completed else ''}",
             inline=False
         )
 
