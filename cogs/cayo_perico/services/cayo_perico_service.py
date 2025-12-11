@@ -611,3 +611,16 @@ class CayoPericoService:
 
         row = await self.db.fetchrow(select_sql, heist_id, user_id)
         return row[0] if row else False
+
+    async def get_or_create_user_id(self, discord_id: int) -> int:
+        """
+        Récupère ou crée un user_id depuis un discord_id.
+        Méthode publique exposée pour les autres services (ex: notifications).
+
+        Args:
+            discord_id: ID Discord de l'utilisateur
+
+        Returns:
+            ID interne de l'utilisateur (users.id)
+        """
+        return await self._get_or_create_user(discord_id)

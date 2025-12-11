@@ -9,6 +9,7 @@ Fonctionnalité Cayo Perico V2 - Calculateur optimisé :
 """
 
 from typing import Optional, Dict, List
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -1557,6 +1558,12 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         finished_at = datetime.now(timezone.utc)
         await self.service.close_heist(self.heist["id"], total_real, self.elite_completed, finished_at)
 
+        # Mettre à jour le temps de mission
+        await self._update_mission_time(self.heist["id"], mission_time_seconds)
+
+        # Enregistrer le cooldown actif pour les notifications
+        await self._register_active_cooldown(self.heist, finished_at, len(self.participants))
+
         # Récupérer le heist complet avec tous les timestamps
         heist_full = await self.service.get_heist_by_id(self.heist["id"])
         if heist_full is None:
@@ -1671,6 +1678,50 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
                 logger.info(f"[Cayo] Message Elite du braquage {self.heist['id']} supprimé")
             except Exception as e:
                 logger.error(f"[Cayo] Erreur lors de la suppression du message Elite: {e}")
+
+    async def _update_mission_time(self, heist_id: int, mission_time_seconds: int):
+        """Met à jour le temps de mission dans la table cayo_heists."""
+        if self.service.db is None:
+            return
+
+        query = """
+            UPDATE cayo_heists
+            SET mission_time_seconds = %s
+            WHERE id = %s
+        """
+
+        await self.service.db.execute(query, mission_time_seconds, heist_id)
+        logger.info(f"[Cayo] Temps de mission enregistré: {mission_time_seconds}s pour heist {heist_id}")
+
+    async def _register_active_cooldown(self, heist: Dict, finished_at: datetime, num_players: int):
+        """Enregistre le cooldown actif pour les notifications."""
+        if self.service.db is None:
+            return
+
+        try:
+            # Récupérer le leader_user_id (ID interne)
+            leader_user_id = await self.service.get_or_create_user_id(heist['leader_id'])
+
+            query = """
+                INSERT INTO cayo_active_cooldowns
+                    (heist_id, leader_user_id, guild_id, finished_at, num_players)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (heist_id) DO NOTHING
+            """
+
+            await self.service.db.execute(
+                query,
+                heist['id'],
+                leader_user_id,
+                heist['guild_id'],
+                finished_at,
+                num_players
+            )
+
+            logger.info(f"[Cayo] Cooldown actif enregistré pour heist {heist['id']}")
+
+        except Exception as e:
+            logger.error(f"[Cayo] Erreur lors de l'enregistrement du cooldown actif: {e}")
 
 
 # ==================== COG PRINCIPAL ====================
