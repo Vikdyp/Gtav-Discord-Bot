@@ -45,7 +45,7 @@ class CayoPericoService:
 
         row = await self.db.fetchrow(select_sql, discord_id)
         if row:
-            return row[0]
+            return row['id']
 
         insert_sql = """
         INSERT INTO users (discord_id)
@@ -56,7 +56,7 @@ class CayoPericoService:
         row = await self.db.fetchrow(insert_sql, discord_id)
         if row is None:
             raise RuntimeError("Impossible de créer l'utilisateur en BDD")
-        user_id = row[0]
+        user_id = row['id']
         logger.info(f"[Cayo] Nouvel utilisateur créé (discord_id={discord_id}, id={user_id})")
         return user_id
 
@@ -84,7 +84,7 @@ class CayoPericoService:
         if user_row is None:
             return False  # Si l'utilisateur n'existe pas, pas de braquage actif
 
-        leader_user_id = user_row[0]
+        leader_user_id = user_row['id']
 
         query = """
         SELECT EXISTS (
@@ -92,11 +92,11 @@ class CayoPericoService:
             FROM cayo_heists
             WHERE leader_user_id = %s
               AND status IN ('pending', 'ready')
-        );
+        ) as exists;
         """
 
         row = await self.db.fetchrow(query, leader_user_id)
-        return row[0] if row else False
+        return row['exists'] if row else False
 
     async def create_heist(
         self,
@@ -156,7 +156,7 @@ class CayoPericoService:
         if row is None:
             raise RuntimeError("Impossible de créer le braquage Cayo Perico")
 
-        heist_id = row[0]
+        heist_id = row['id']
         logger.info(f"[Cayo] Braquage créé (id={heist_id}, guild={guild_id})")
         return heist_id
 
@@ -317,21 +317,21 @@ class CayoPericoService:
             return None
 
         return {
-            "id": row[0],
-            "guild_id": row[1],
-            "channel_id": row[2],
-            "message_id": row[3],
+            "id": row['id'],
+            "guild_id": row['guild_id'],
+            "channel_id": row['channel_id'],
+            "message_id": row['message_id'],
             # IMPORTANT : côté Cog, on manipule toujours des discord_id
-            "leader_id": row[4],
-            "primary_loot": row[5],
-            "secondary_loot": row[6],
-            "estimated_loot": row[7],
-            "final_loot": row[8],
-            "status": row[9],
-            "created_at": row[10],
-            "updated_at": row[11],
-            "hard_mode": row[12] if row[12] is not None else False,
-            "office_paintings": row[13] if row[13] else 0,
+            "leader_id": row['leader_discord_id'],
+            "primary_loot": row['primary_loot'],
+            "secondary_loot": row['secondary_loot'],
+            "estimated_loot": row['estimated_loot'],
+            "final_loot": row['final_loot'],
+            "status": row['status'],
+            "created_at": row['created_at'],
+            "updated_at": row['updated_at'],
+            "hard_mode": row['hard_mode'] if row['hard_mode'] is not None else False,
+            "office_paintings": row['office_paintings'] if row['office_paintings'] else 0,
         }
 
     async def get_participants(self, heist_id: int) -> List[int]:
@@ -350,7 +350,7 @@ class CayoPericoService:
         """
 
         rows = await self.db.fetch(select_sql, heist_id)
-        return [row[0] for row in rows]
+        return [row['discord_id'] for row in rows]
 
     async def update_optimized_plan(self, heist_id: int, optimized_plan: List[Dict]) -> None:
         """
@@ -464,27 +464,27 @@ class CayoPericoService:
             return None
 
         return {
-            "id": row[0],
-            "guild_id": row[1],
-            "channel_id": row[2],
-            "message_id": row[3],
-            "leader_id": row[4],
-            "primary_loot": row[5],
-            "secondary_loot": row[6],
-            "estimated_loot": row[7],
-            "final_loot": row[8],
-            "status": row[9],
-            "hard_mode": row[10],
-            "safe_amount": row[11],
+            "id": row['id'],
+            "guild_id": row['guild_id'],
+            "channel_id": row['channel_id'],
+            "message_id": row['message_id'],
+            "leader_id": row['leader_discord_id'],
+            "primary_loot": row['primary_loot'],
+            "secondary_loot": row['secondary_loot'],
+            "estimated_loot": row['estimated_loot'],
+            "final_loot": row['final_loot'],
+            "status": row['status'],
+            "hard_mode": row['hard_mode'],
+            "safe_amount": row['safe_amount'],
             # JSONB PostgreSQL retourne déjà un dict/list Python avec psycopg
-            "optimized_plan": row[12] if row[12] else [],
-            "created_at": row[13],
-            "updated_at": row[14],
-            "ready_at": row[15],
-            "finished_at": row[16],
-            "elite_challenge_completed": row[17],
-            "custom_shares": row[18] if row[18] else None,
-            "office_paintings": row[19] if row[19] else 0,
+            "optimized_plan": row['optimized_plan'] if row['optimized_plan'] else [],
+            "created_at": row['created_at'],
+            "updated_at": row['updated_at'],
+            "ready_at": row['ready_at'],
+            "finished_at": row['finished_at'],
+            "elite_challenge_completed": row['elite_challenge_completed'],
+            "custom_shares": row['custom_shares'] if row['custom_shares'] else None,
+            "office_paintings": row['office_paintings'] if row['office_paintings'] else 0,
         }
 
     async def get_user_statistics(self, discord_id: int) -> Dict[str, Any]:
@@ -523,10 +523,10 @@ class CayoPericoService:
             }
 
         return {
-            "total_heists": row[0] or 0,
-            "avg_gain": int(row[1]) if row[1] else 0,
-            "avg_accuracy": round(float(row[2]), 2) if row[2] else 0.0,
-            "total_earned": int(row[3]) if row[3] else 0,
+            "total_heists": row['total_heists'] or 0,
+            "avg_gain": int(row['avg_gain']) if row['avg_gain'] else 0,
+            "avg_accuracy": round(float(row['avg_accuracy']), 2) if row['avg_accuracy'] else 0.0,
+            "total_earned": int(row['total_earned']) if row['total_earned'] else 0,
         }
 
     async def update_custom_shares(self, heist_id: int, shares: Dict[int, float]) -> None:
@@ -576,13 +576,13 @@ class CayoPericoService:
 
         row = await self.db.fetchrow(select_sql, heist_id)
 
-        if row is None or row[0] is None:
+        if row is None or row['custom_shares'] is None:
             return None
 
         import json
 
         # Convertir les clés string en int
-        shares_json = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        shares_json = row['custom_shares'] if isinstance(row['custom_shares'], dict) else json.loads(row['custom_shares'])
         return {int(k): v for k, v in shares_json.items()}
 
     async def is_participant(self, heist_id: int, user_discord_id: int) -> bool:
@@ -606,11 +606,11 @@ class CayoPericoService:
             SELECT 1
             FROM cayo_participants
             WHERE heist_id = %s AND user_id = %s
-        );
+        ) as exists;
         """
 
         row = await self.db.fetchrow(select_sql, heist_id, user_id)
-        return row[0] if row else False
+        return row['exists'] if row else False
 
     async def get_or_create_user_id(self, discord_id: int) -> int:
         """
