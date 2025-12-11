@@ -1537,8 +1537,9 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
 
         # Essayer de parser avec différents séparateurs
         import re
-        # Extraire tous les nombres (en ignorant les préfixes J1:, J2:, etc.)
-        numbers = re.findall(r'(\d+)', gains_text)
+        # Extraire seulement les nombres de 5+ chiffres (montants GTA$)
+        # Cela ignore automatiquement les "1", "2" dans "J1:", "J2:", etc.
+        numbers = re.findall(r'(\d{5,})', gains_text)
 
         for idx, participant_id in enumerate(self.participants):
             if idx < len(numbers):
