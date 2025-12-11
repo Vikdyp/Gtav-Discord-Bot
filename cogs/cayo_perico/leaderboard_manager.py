@@ -122,9 +122,9 @@ class LeaderboardManager(commands.Cog):
                 # Fetch le thread
                 thread = forum_channel.get_thread(lb_msg_info['thread_id'])
                 if not thread:
-                    # Essayer de fetch le thread
+                    # Essayer de fetch le thread via le bot
                     try:
-                        thread = await forum_channel.fetch_channel(lb_msg_info['thread_id'])
+                        thread = await self.bot.fetch_channel(lb_msg_info['thread_id'])
                     except discord.NotFound:
                         self.logger.warning(
                             f"[Leaderboards] Thread {lb_msg_info['thread_id']} non trouvé pour {guild.name}"
