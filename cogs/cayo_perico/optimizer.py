@@ -4,7 +4,6 @@ Algorithme d'optimisation pour le calculateur Cayo Perico.
 Gère les constantes des butins et l'optimisation automatique des sacs.
 """
 
-import math
 from typing import Dict, List, TypedDict
 
 
@@ -18,9 +17,11 @@ class PrimaryTarget(TypedDict):
 class SecondaryTarget(TypedDict):
     name: str
     value: int
-    capacity: float  # % du sac que prend 1 pile complète
-    clicks: int      # Nombre de clics pour prendre 1 pile complète
+    capacity: float  # % du sac que prend 1 pile complète (pour compatibilité)
+    clicks: int      # Nombre de clics pour prendre 1 pile complète (pour compatibilité)
     solo: bool       # True = accessible en solo, False = interdit en solo
+    pickup_steps: List[float]  # Progression des clics (% de la pile)
+    bag_capacity_steps: List[float]  # Capacité utilisée à chaque clic (% du sac)
 
 
 PRIMARY_TARGETS: Dict[str, PrimaryTarget] = {
@@ -32,14 +33,54 @@ PRIMARY_TARGETS: Dict[str, PrimaryTarget] = {
 }
 
 SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
-    "cash": {"name": "Argent", "value": 78750, "capacity": 25.0, "clicks": 10, "solo": False},
-    "weed": {"name": "Cannabis", "value": 130500, "capacity": 37.5, "clicks": 10, "solo": True},
-    "paintings": {"name": "Tableaux", "value": 157500, "capacity": 50.0, "clicks": 1, "solo": False},
-    "cocaine": {"name": "Cocaïne", "value": 198000, "capacity": 50.0, "clicks": 10, "solo": True},
-    "gold": {"name": "Lingots d'or", "value": 328333, "capacity": 66.65, "clicks": 7, "solo": False},
+    "gold": {
+        "name": "Lingots d'or",
+        "value": 330833,  # Moyenne 328333-333333
+        "capacity": 66.66,
+        "clicks": 7,
+        "solo": False,
+        "pickup_steps": [8.333, 25.0, 33.333, 50.0, 66.666, 83.333, 100.0],
+        "bag_capacity_steps": [5.556, 16.667, 22.222, 33.333, 44.444, 55.556, 66.66]
+    },
+    "cocaine": {
+        "name": "Cocaïne",
+        "value": 200250,  # Moyenne 198000-202500
+        "capacity": 50.0,
+        "clicks": 10,
+        "solo": True,
+        "pickup_steps": [11.111, 22.222, 31.111, 37.778, 42.222, 51.111, 64.444, 77.778, 95.556, 100.0],
+        "bag_capacity_steps": [5.556, 11.111, 15.556, 18.889, 21.111, 25.556, 32.222, 38.889, 47.778, 50.0]
+    },
+    "paintings": {
+        "name": "Tableaux",
+        "value": 168750,  # Moyenne 157500-180000
+        "capacity": 50.0,
+        "clicks": 1,
+        "solo": False,
+        "pickup_steps": [100.0],
+        "bag_capacity_steps": [50.0]
+    },
+    "weed": {
+        "name": "Cannabis",
+        "value": 132750,  # Moyenne 130500-135000
+        "capacity": 37.5,
+        "clicks": 10,
+        "solo": True,
+        "pickup_steps": [11.111, 22.222, 31.111, 37.778, 42.222, 51.111, 64.444, 77.778, 95.556, 100.0],
+        "bag_capacity_steps": [4.167, 8.333, 11.667, 14.167, 15.833, 19.167, 24.167, 29.167, 35.833, 37.5]
+    },
+    "cash": {
+        "name": "Argent",
+        "value": 81000,  # Moyenne 78750-83250
+        "capacity": 25.0,
+        "clicks": 10,
+        "solo": False,
+        "pickup_steps": [11.111, 22.222, 31.111, 37.778, 42.222, 51.111, 64.444, 77.778, 95.556, 100.0],
+        "bag_capacity_steps": [2.778, 5.556, 7.778, 9.444, 10.556, 12.778, 16.111, 19.444, 23.889, 25.0]
+    }
 }
 
-SAFE_VALUE = 60000  # Valeur fixe du coffre-fort
+SAFE_VALUE = 59500  # Valeur moyenne du coffre-fort (20000-99000)
 HARD_MODE_MULTIPLIER = 1.10  # Bonus mode difficile (+10%)
 
 # Frais et déductions
@@ -212,56 +253,81 @@ def optimize_bags(
             if item["remaining"] <= 0:
                 continue
 
-            # === NOUVELLE LOGIQUE BASÉE SUR LES CLICS ===
+            # === LOGIQUE BASÉE SUR LES VRAIS PICKUP_STEPS ET BAG_CAPACITY_STEPS ===
 
-            # 1. Calculer la capacité par clic
-            capacity_per_click = item["capacity_per_pile"] / item["clicks_per_pile"]
+            loot_info = SECONDARY_TARGETS[item["type"]]
+            pickup_steps = loot_info["pickup_steps"]
+            bag_capacity_steps = loot_info["bag_capacity_steps"]
 
-            # 2. Calculer le nombre de clics maximum possible
-            max_clicks_capacity = bag["capacity_remaining"] / capacity_per_click
-            max_clicks_stock = item["remaining"] * item["clicks_per_pile"]
+            # Calculer combien de piles complètes on peut encore prendre
+            piles_remaining_stock = item["remaining"]
 
-            # 3. Nombre de clics entiers (règle générale)
-            clicks_integer = math.floor(min(max_clicks_capacity, max_clicks_stock))
+            # Calculer combien de clics on peut faire selon le stock et l'espace
+            total_clicks_done = 0
+            total_capacity_used = 0.0
+            total_piles_taken = 0.0
 
-            # 4. Vérifier si on peut ajouter un clic fractionnaire pour remplir à 100%
-            capacity_after_integer = bag["capacity_remaining"] - (clicks_integer * capacity_per_click)
-            clicks_total = float(clicks_integer)
+            # Pour chaque pile disponible dans le stock
+            while piles_remaining_stock > 0 and bag["capacity_remaining"] > 0.01:
+                # Déterminer combien de clics on peut faire sur cette pile
+                clicks_on_current_pile = 0
+                capacity_used_on_pile = 0.0
 
-            # EXCEPTION : Les tableaux ne peuvent PAS être pris partiellement (tout ou rien)
-            # Pour les autres items, on peut ajouter un clic fractionnaire final
-            is_painting = item["type"] == "paintings"
+                for click_idx, (pickup_pct, capacity_pct) in enumerate(zip(pickup_steps, bag_capacity_steps)):
+                    # Vérifier si on a assez d'espace dans le sac
+                    if capacity_pct > bag["capacity_remaining"]:
+                        break
 
-            # Si le sac n'est pas plein et qu'il reste du stock
-            if not is_painting and capacity_after_integer > 0.01 and max_clicks_stock > clicks_integer:
-                # Calculer le clic fractionnaire pour remplir exactement
-                fractional_click = min(
-                    capacity_after_integer / capacity_per_click,  # Capacité restante en clics
-                    max_clicks_stock - clicks_integer  # Stock restant en clics
-                )
-                clicks_total = clicks_integer + fractional_click
+                    # On peut faire ce clic
+                    clicks_on_current_pile = click_idx + 1
+                    capacity_used_on_pile = capacity_pct
 
-            if clicks_total < 0.01:
+                    # Si on a complété la pile (100%), on arrête
+                    if pickup_pct >= 100.0:
+                        break
+
+                # Si on ne peut pas faire un seul clic, on arrête
+                if clicks_on_current_pile == 0:
+                    break
+
+                # Calculer la portion de pile prise avec ces clics
+                pile_portion = pickup_steps[clicks_on_current_pile - 1] / 100.0
+
+                # Enregistrer les clics et la capacité utilisée
+                total_clicks_done += clicks_on_current_pile
+                total_capacity_used += capacity_used_on_pile
+                total_piles_taken += pile_portion
+
+                # Réduire le stock et l'espace restant
+                bag["capacity_remaining"] -= capacity_used_on_pile
+                piles_remaining_stock -= pile_portion
+
+                # Si on a pris moins de 100% de la pile, on arrête (plus d'espace)
+                if pile_portion < 1.0:
+                    break
+
+            # Si on n'a rien pris, passer à l'item suivant
+            if total_clicks_done == 0:
                 continue
 
-            # 5. Calculer les valeurs réelles
-            actual_piles = clicks_total / item["clicks_per_pile"]
-            capacity_used = clicks_total * capacity_per_click
-            value_gained = actual_piles * item["value_per_pile"]
+            # Calculer la valeur gagnée
+            value_gained = total_piles_taken * item["value_per_pile"]
+
+            # Ne pas ajouter l'item si la valeur est négligeable (< 100 GTA$)
+            if value_gained < 100:
+                continue
 
             bag["items"].append({
                 "type": item["type"],
                 "name": item["name"],
-                "piles": round(actual_piles, 2),
-                "clicks": round(clicks_total, 1),  # Garder la précision pour les clics fractionnaires
-                "capacity": round(capacity_used, 2),
+                "piles": round(total_piles_taken, 2),
+                "clicks": round(total_clicks_done, 1),
+                "capacity": round(total_capacity_used, 2),
                 "value": int(value_gained),
             })
 
-            bag["capacity_remaining"] -= capacity_used
-            bag["capacity_remaining"] = max(0, bag["capacity_remaining"])  # Éviter les négatifs
             bag["total_value"] += int(value_gained)
-            item["remaining"] -= actual_piles
+            item["remaining"] = piles_remaining_stock
 
         bags.append(bag)
 

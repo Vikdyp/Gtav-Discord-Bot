@@ -538,6 +538,12 @@ class JoinButton(discord.ui.Button):
             heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
         )
 
+        # Récupérer les parts personnalisées si définies
+        custom_shares = await self.service.get_custom_shares(heist["id"])
+        if custom_shares:
+            # Convertir en liste dans l'ordre des participants
+            shares = [custom_shares.get(pid, 25.0) for pid in participants]
+
         embed.add_field(
             name="🎒 Plan de sac optimisé",
             value=format_bag_plan_embed(
@@ -696,6 +702,12 @@ class LeaveButton(discord.ui.Button):
         shares, total_net, elite_bonus = _calculate_bag_plan_params(
             heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
         )
+
+        # Récupérer les parts personnalisées si définies
+        custom_shares = await self.service.get_custom_shares(heist["id"])
+        if custom_shares:
+            # Convertir en liste dans l'ordre des participants
+            shares = [custom_shares.get(pid, 25.0) for pid in participants]
 
         embed.add_field(
             name="🎒 Plan de sac optimisé",
@@ -886,6 +898,12 @@ class ReadyButton(discord.ui.Button):
         shares, total_net, elite_bonus = _calculate_bag_plan_params(
             heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
         )
+
+        # Récupérer les parts personnalisées si définies
+        custom_shares = await self.service.get_custom_shares(heist["id"])
+        if custom_shares:
+            # Convertir en liste dans l'ordre des participants
+            shares = [custom_shares.get(pid, 25.0) for pid in participants]
 
         embed.add_field(
             name="🎒 Plan de sac optimisé",
@@ -1245,6 +1263,12 @@ class CayoPericoView(discord.ui.View):
         shares, total_net, elite_bonus = _calculate_bag_plan_params(
             heist["primary_loot"], optimized_bags, heist.get("hard_mode", False), num_players
         )
+
+        # Récupérer les parts personnalisées si définies
+        custom_shares = await self.service.get_custom_shares(heist["id"])
+        if custom_shares:
+            # Convertir en liste dans l'ordre des participants
+            shares = [custom_shares.get(pid, 25.0) for pid in participants]
 
         embed.add_field(
             name="🎒 Plan de sac optimisé",

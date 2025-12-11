@@ -89,12 +89,13 @@ def format_bag_plan_embed(
                     f"= {format_money(item['value'])}"
                 )
 
-        lines.append(f"  💰 **Dans le sac : {format_money(bag['total_value'])}**")
-
         # Ajouter le gain total avec Elite si les informations sont disponibles
         if shares is not None and total_net is not None and elite_bonus is not None and player_idx < len(shares):
             base_gain = int(total_net * shares[player_idx] / 100.0)
             lines.append(f"  💰 **Total gain : {format_money(base_gain)} +{format_money(elite_bonus)} avec Elite**")
+        else:
+            # Fallback si pas d'informations sur les parts
+            lines.append(f"  💰 **Dans le sac : {format_money(bag['total_value'])}**")
 
         lines.append("")  # Ligne vide entre joueurs
 
