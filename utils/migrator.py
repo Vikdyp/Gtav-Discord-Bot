@@ -261,4 +261,60 @@ class Migrator:
             results_exists = await self._table_exists("cayo_results")
             lines.append(f"• `cayo_results`: {'✅' if results_exists else '❌'}")
 
+        # Stats and Notifications (005)
+        stats_applied = await self.check_stats_and_notifications()
+        status_stats = "✅ Appliquée" if stats_applied else "⏳ En attente"
+        lines.append(f"• **Stats & Notifications** (005): {status_stats}")
+
         return "\n".join(lines)
+
+    async def check_stats_and_notifications(self) -> bool:
+        """
+        Vérifie si la migration 005 (stats et notifications) a été appliquée.
+
+        Returns:
+            True si la migration est appliquée, False sinon
+        """
+        # Vérifier les nouvelles tables
+        leaderboards_exists = await self._table_exists("cayo_leaderboard_messages")
+        notifications_exists = await self._table_exists("cayo_user_notifications")
+        cooldowns_exists = await self._table_exists("cayo_active_cooldowns")
+
+        # Vérifier la colonne mission_time_seconds
+        mission_time_exists = await self._column_exists("cayo_heists", "mission_time_seconds")
+
+        return (
+            leaderboards_exists
+            and notifications_exists
+            and cooldowns_exists
+            and mission_time_exists
+        )
+
+    async def apply_stats_and_notifications(self) -> tuple[bool, str]:
+        """
+        Applique la migration 005 (stats et notifications).
+
+        Returns:
+            Tuple (success, message)
+        """
+        try:
+            if await self.check_stats_and_notifications():
+                return True, "✅ Migration déjà appliquée (rien à faire)"
+
+            # Lire le fichier
+            migration_file = Path("migrations/005_cayo_stats_and_notifications.sql")
+            if not migration_file.exists():
+                return False, f"❌ Fichier de migration introuvable : {migration_file}"
+
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+
+            # Exécuter
+            await self.db.execute(sql)
+
+            logger.info("[Migrator] Migration 005 (stats et notifications) appliquée avec succès")
+            return True, "✅ Migration 005 (Stats & Notifications) appliquée avec succès !"
+
+        except Exception as e:
+            logger.error(f"[Migrator] Erreur lors de la migration 005 : {e}")
+            return False, f"❌ Erreur lors de la migration : {str(e)}"

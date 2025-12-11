@@ -1,5 +1,4 @@
--- Migration 002: Système de stats et leaderboards Cayo Perico
--- Auteur: Claude Code
+-- Migration 005: Système de stats, leaderboards et notifications Cayo Perico
 -- Date: 2025-12-11
 -- Description: Ajoute les tables pour leaderboards auto-update, notifications et stats étendues
 

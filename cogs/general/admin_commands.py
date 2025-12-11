@@ -191,6 +191,7 @@ class GeneralCommands(commands.Cog):
             app_commands.Choice(name="Appliquer Cayo Perico V2 Additions", value="apply_cayo_v2_add"),
             app_commands.Choice(name="Appliquer Ready At (003)", value="apply_ready_at"),
             app_commands.Choice(name="Appliquer Office Paintings (004)", value="apply_office_paintings"),
+            app_commands.Choice(name="Appliquer Stats & Notifications (005)", value="apply_stats_notifications"),
         ]
     )
     async def migrate(
@@ -339,6 +340,33 @@ class GeneralCommands(commands.Cog):
                     self.logger.info(f"[Migrate] Migration Office Paintings (004) appliquée par {interaction.user}")
                 else:
                     self.logger.warning(f"[Migrate] Échec de la migration Office Paintings (004) : {message}")
+
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Erreur critique",
+                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
+
+        # ---- ACTION: APPLY STATS & NOTIFICATIONS (005) ----
+        elif action_value == "apply_stats_notifications":
+            try:
+                success, message = await migrator.apply_stats_and_notifications()
+
+                embed = discord.Embed(
+                    title="🔄 Migration Stats & Notifications (005)",
+                    description=message,
+                    color=discord.Color.green() if success else discord.Color.red()
+                )
+
+                await interaction.followup.send(embed=embed)
+
+                if success:
+                    self.logger.info(f"[Migrate] Migration Stats & Notifications (005) appliquée par {interaction.user}")
+                else:
+                    self.logger.warning(f"[Migrate] Échec de la migration Stats & Notifications (005) : {message}")
 
             except Exception as e:
                 embed = discord.Embed(
