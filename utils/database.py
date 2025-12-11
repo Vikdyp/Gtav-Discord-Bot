@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Any, List
 
 import psycopg
+from psycopg.rows import dict_row
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class Database:
         """
         Exécute une requête SELECT et renvoie toutes les lignes.
 
-        Renvoie une liste de tuples (comme ton cog avec cur.fetchall()).
+        Renvoie une liste de dictionnaires avec noms de colonnes comme clés.
 
         Usage:
             rows = await db.fetch(
@@ -106,7 +107,7 @@ class Database:
 
         try:
             with psycopg.connect(self._conn_string) as conn:
-                with conn.cursor() as cur:
+                with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(query, args if args else None)
                     rows = cur.fetchall()
             return rows
@@ -117,6 +118,8 @@ class Database:
     async def fetchrow(self, query: str, *args) -> Optional[Any]:
         """
         Exécute une requête SELECT et renvoie une seule ligne (ou None).
+
+        Renvoie un dictionnaire avec noms de colonnes comme clés.
 
         Usage:
             row = await db.fetchrow(
@@ -131,7 +134,7 @@ class Database:
 
         try:
             with psycopg.connect(self._conn_string) as conn:
-                with conn.cursor() as cur:
+                with conn.cursor(row_factory=dict_row) as cur:
                     cur.execute(query, args if args else None)
                     row = cur.fetchone()
             return row

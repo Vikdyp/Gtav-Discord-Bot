@@ -54,11 +54,11 @@ class AdminCommandsService:
 
         # Si tu veux être strict tu peux vérifier is_connected(), sinon on part du principe
         # que BotManager.setup_hook() a déjà appelé db.connect().
-        row = await self.db.fetchrow("SELECT 1;")
+        row = await self.db.fetchrow("SELECT 1 as result;")
         if row is None:
             raise RuntimeError("SELECT 1 n'a retourné aucune ligne")
         logger.info("[DB] Connexion PostgreSQL OK (SELECT 1)")
-        return row[0]
+        return row['result']
 
     async def save_message(
         self,
@@ -91,16 +91,17 @@ class AdminCommandsService:
         if row is None:
             raise RuntimeError("INSERT n'a retourné aucune ligne (RETURNING)")
 
-        entry_id, created_at = row
+        entry_id = row['id']
+        created_at = row['created_at']
         logger.info(
             f"[DB] Entrée ajoutée id={entry_id} user={username} content={content}"
         )
         return entry_id, created_at
 
-    async def get_last_entries(self, limit: int = 5) -> List[tuple]:
+    async def get_last_entries(self, limit: int = 5) -> List[dict]:
         """
         Récupère les dernières entrées de test_entries.
-        Retourne une liste de tuples (id, username, content, created_at).
+        Retourne une liste de dictionnaires avec keys: id, username, content, created_at.
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans AdminCommandsService")

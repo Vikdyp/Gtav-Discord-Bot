@@ -150,10 +150,10 @@ class GeneralCommands(commands.Cog):
                     description = "Aucune entrée trouvée dans `test_entries`."
                 else:
                     lines = []
-                    for _id, username, content, created_at in rows:
+                    for row in rows:
                         lines.append(
-                            f"**#{_id}** - {username} - `{content}` "
-                            f"(_{created_at}_)"
+                            f"**#{row['id']}** - {row['username']} - `{row['content']}` "
+                            f"(_{row['created_at']}_)"
                         )
                     description = "\n".join(lines)
 
