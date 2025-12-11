@@ -381,6 +381,7 @@ class ConfigView(discord.ui.View):
                 secondary_loot=self.secondary_loot,
                 estimated_loot=total_loot,
                 office_paintings=self.office_paintings,
+                hard_mode=self.hard_mode,
             )
         except ValueError as e:
             # Braquage actif déjà existant - supprimer le message créé
@@ -1046,7 +1047,7 @@ class SharesButton(discord.ui.Button):
             return
 
         # Ouvrir le Modal de répartition
-        modal = SharesModal(heist, participants, self.service)
+        modal = SharesModal(heist, participants, self.service, interaction.message)
         await interaction.response.send_modal(modal)
 
     async def _get_heist_for_interaction(self, interaction: discord.Interaction):
@@ -1296,11 +1297,12 @@ class CayoPericoView(discord.ui.View):
 class SharesModal(discord.ui.Modal, title="Répartition des parts"):
     """Modal pour définir les parts personnalisées (incréments de 5%, minimum 15%)."""
 
-    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService):
+    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService, original_message: discord.Message):
         super().__init__()
         self.heist = heist
         self.participants = participants
         self.service = service
+        self.original_message = original_message
 
         # Récupérer les parts actuelles ou par défaut
         from cogs.cayo_perico.optimizer import calculate_default_shares
@@ -1364,6 +1366,92 @@ class SharesModal(discord.ui.Modal, title="Répartition des parts"):
 
         # Sauvegarder
         await self.service.update_custom_shares(self.heist["id"], shares_dict)
+
+        # Mettre à jour l'embed principal
+        heist_full = await self.service.get_heist_by_id(self.heist["id"])
+        if heist_full:
+            participants = await self.service.get_participants(self.heist["id"])
+            num_players = len(participants)
+
+            # Recalculer le plan de sac
+            optimized_bags = optimize_bags(
+                heist_full["secondary_loot"],
+                num_players=num_players,
+                is_solo=(num_players == 1),
+                office_paintings=heist_full.get("office_paintings", 0)
+            )
+
+            # Recalculer le butin estimé
+            total_loot = calculate_estimated_loot(
+                heist_full["primary_loot"],
+                optimized_bags,
+                heist_full.get("hard_mode", False)
+            )
+
+            # Construire le nouvel embed
+            status_label = {
+                "pending": "⏳ En préparation",
+                "ready": "✅ Prêt",
+                "finished": "🏁 Terminé",
+                "cancelled": "❌ Annulé",
+            }.get(heist_full.get("status", "pending"), "⏳ En préparation")
+
+            embed = discord.Embed(
+                title="💣 Préparation Cayo Perico",
+                color=discord.Color.gold()
+            )
+
+            embed.add_field(name="Organisateur", value=f"<@{heist_full['leader_id']}>", inline=True)
+            embed.add_field(name="Statut", value=status_label, inline=True)
+            embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+            embed.add_field(
+                name="🎯 Objectifs",
+                value=format_objectives_summary(
+                    heist_full["primary_loot"],
+                    heist_full["secondary_loot"],
+                    heist_full.get("hard_mode", False),
+                    total_loot
+                ),
+                inline=False
+            )
+
+            participants_mentions = ", ".join(f"<@{uid}>" for uid in participants)
+            embed.add_field(
+                name=f"👥 Participants ({len(participants)})",
+                value=participants_mentions,
+                inline=False
+            )
+
+            # Calculer les informations pour le plan de sac avec Elite
+            shares_list, total_net, elite_bonus = _calculate_bag_plan_params(
+                heist_full["primary_loot"], optimized_bags, heist_full.get("hard_mode", False), num_players
+            )
+
+            # Utiliser les parts personnalisées
+            shares_list = [shares_dict.get(pid, 25.0) for pid in participants]
+
+            embed.add_field(
+                name="🎒 Plan de sac optimisé",
+                value=format_bag_plan_embed(
+                    optimized_bags,
+                    participants,
+                    shares=shares_list,
+                    total_net=total_net,
+                    hard_mode=heist_full.get("hard_mode", False),
+                    elite_bonus=elite_bonus
+                ),
+                inline=False
+            )
+
+            # Mettre à jour le message principal
+            current_status = heist_full.get("status", "pending")
+            new_view = CayoPericoView(self.service, heist_status=current_status, num_participants=num_players)
+
+            try:
+                await self.original_message.edit(embed=embed, view=new_view)
+            except Exception as e:
+                logger.error(f"[Cayo] Erreur lors de la mise à jour du message après répartition des parts: {e}")
 
         await interaction.response.send_message(
             "✅ Parts personnalisées enregistrées !", ephemeral=True

@@ -108,6 +108,7 @@ class CayoPericoService:
         secondary_loot: Dict[str, int],
         estimated_loot: Optional[int] = None,
         office_paintings: int = 0,
+        hard_mode: bool = False,
     ) -> int:
         """
         Crée un braquage Cayo Perico et renvoie son ID.
@@ -133,9 +134,9 @@ class CayoPericoService:
         INSERT INTO cayo_heists (
             guild_id, channel_id, message_id,
             leader_user_id,
-            primary_loot, secondary_loot, estimated_loot, office_paintings
+            primary_loot, secondary_loot, estimated_loot, office_paintings, hard_mode
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id;
         """
 
@@ -149,6 +150,7 @@ class CayoPericoService:
             json.dumps(secondary_loot),
             estimated_loot,
             office_paintings,
+            hard_mode,
         )
 
         if row is None:
@@ -299,7 +301,9 @@ class CayoPericoService:
             h.final_loot,
             h.status,
             h.created_at,
-            h.updated_at
+            h.updated_at,
+            h.hard_mode,
+            h.office_paintings
         FROM cayo_heists h
         JOIN users u ON h.leader_user_id = u.id
         WHERE h.guild_id = %s
@@ -326,6 +330,8 @@ class CayoPericoService:
             "status": row[9],
             "created_at": row[10],
             "updated_at": row[11],
+            "hard_mode": row[12] if row[12] is not None else False,
+            "office_paintings": row[13] if row[13] else 0,
         }
 
     async def get_participants(self, heist_id: int) -> List[int]:
