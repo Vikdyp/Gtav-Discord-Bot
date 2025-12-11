@@ -83,9 +83,10 @@ def format_bag_plan_embed(
             for item in bag["items"]:
                 piles_str = f"{item['piles']}x" if item['piles'] != 1.0 else "1x"
                 clicks_str = f"{item['clicks']:.1f}" if item['clicks'] != int(item['clicks']) else str(int(item['clicks']))
+                clicks_label = "cuts" if item.get('type') == "paintings" else "clics"
                 lines.append(
                     f"  • {piles_str} {item['name']} "
-                    f"({clicks_str} clics, {item['capacity']:.1f}%) "
+                    f"({clicks_str} {clicks_label}, {item['capacity']:.1f}%) "
                     f"= {format_money(item['value'])}"
                 )
 

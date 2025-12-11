@@ -17,6 +17,7 @@ class PrimaryTarget(TypedDict):
 class SecondaryTarget(TypedDict):
     name: str
     value: int
+    weight: float    # Poids de l'item (détermine l'espace occupé dans le sac)
     capacity: float  # % du sac que prend 1 pile complète (pour compatibilité)
     clicks: int      # Nombre de clics pour prendre 1 pile complète (pour compatibilité)
     solo: bool       # True = accessible en solo, False = interdit en solo
@@ -36,6 +37,7 @@ SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
     "gold": {
         "name": "Lingots d'or",
         "value": 330833,  # Moyenne 328333-333333
+        "weight": 0.6666,
         "capacity": 66.66,
         "clicks": 7,
         "solo": False,
@@ -45,6 +47,7 @@ SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
     "cocaine": {
         "name": "Cocaïne",
         "value": 200250,  # Moyenne 198000-202500
+        "weight": 0.5,
         "capacity": 50.0,
         "clicks": 10,
         "solo": True,
@@ -54,6 +57,7 @@ SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
     "paintings": {
         "name": "Tableaux",
         "value": 168750,  # Moyenne 157500-180000
+        "weight": 0.5,
         "capacity": 50.0,
         "clicks": 1,
         "solo": False,
@@ -63,6 +67,7 @@ SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
     "weed": {
         "name": "Cannabis",
         "value": 132750,  # Moyenne 130500-135000
+        "weight": 0.375,
         "capacity": 37.5,
         "clicks": 10,
         "solo": True,
@@ -72,6 +77,7 @@ SECONDARY_TARGETS: Dict[str, SecondaryTarget] = {
     "cash": {
         "name": "Argent",
         "value": 81000,  # Moyenne 78750-83250
+        "weight": 0.25,
         "capacity": 25.0,
         "clicks": 10,
         "solo": False,
@@ -161,6 +167,30 @@ def calculate_total_loot(
     return total
 
 
+def find_closest_value(value: float, array: List[float]) -> int:
+    """
+    Trouve l'index de la valeur la plus proche dans pickup_steps.
+    Retourne l'index + 1 (nombre de clics).
+
+    Traduction exacte de la fonction JavaScript du projet de référence.
+
+    Args:
+        value: Valeur à chercher (pourcentage)
+        array: Tableau de pickup_steps
+
+    Returns:
+        Nombre de clics (index + 1)
+    """
+    if value == 0:
+        return 0
+
+    # Trouver l'index avec la distance minimale
+    distances = [abs(value - element) for element in array]
+    closest_index = min(range(len(distances)), key=lambda i: distances[i])
+
+    return closest_index + 1
+
+
 def optimize_bags(
     secondary_loot: Dict[str, int],
     num_players: int,
@@ -247,87 +277,76 @@ def optimize_bags(
         }
 
         for item in items:
-            # Si le sac est plein ou plus de stock, passer
+            # Si le sac est plein ou plus de stock
             if bag["capacity_remaining"] < 0.01:
                 break
             if item["remaining"] <= 0:
                 continue
 
-            # === LOGIQUE BASÉE SUR LES VRAIS PICKUP_STEPS ET BAG_CAPACITY_STEPS ===
+            # === TRADUCTION EXACTE DU CODE JAVASCRIPT ===
 
             loot_info = SECONDARY_TARGETS[item["type"]]
+            weight = loot_info["weight"]
             pickup_steps = loot_info["pickup_steps"]
-            bag_capacity_steps = loot_info["bag_capacity_steps"]
 
-            # Calculer combien de piles complètes on peut encore prendre
-            piles_remaining_stock = item["remaining"]
+            # Calculer realFill (quantité réelle à prendre)
+            # maxFill = combien on peut prendre max avec le stock disponible
+            max_fill = item["remaining"] * weight
 
-            # Calculer combien de clics on peut faire selon le stock et l'espace
-            total_clicks_done = 0
-            total_capacity_used = 0.0
-            total_piles_taken = 0.0
-
-            # Pour chaque pile disponible dans le stock
-            while piles_remaining_stock > 0 and bag["capacity_remaining"] > 0.01:
-                # Déterminer combien de clics on peut faire sur cette pile
-                clicks_on_current_pile = 0
-                capacity_used_on_pile = 0.0
-
-                for click_idx, (pickup_pct, capacity_pct) in enumerate(zip(pickup_steps, bag_capacity_steps)):
-                    # Vérifier si on a assez d'espace dans le sac
-                    if capacity_pct > bag["capacity_remaining"]:
-                        break
-
-                    # On peut faire ce clic
-                    clicks_on_current_pile = click_idx + 1
-                    capacity_used_on_pile = capacity_pct
-
-                    # Si on a complété la pile (100%), on arrête
-                    if pickup_pct >= 100.0:
-                        break
-
-                # Si on ne peut pas faire un seul clic, on arrête
-                if clicks_on_current_pile == 0:
-                    break
-
-                # Calculer la portion de pile prise avec ces clics
-                pile_portion = pickup_steps[clicks_on_current_pile - 1] / 100.0
-
-                # Enregistrer les clics et la capacité utilisée
-                total_clicks_done += clicks_on_current_pile
-                total_capacity_used += capacity_used_on_pile
-                total_piles_taken += pile_portion
-
-                # Réduire le stock et l'espace restant
-                bag["capacity_remaining"] -= capacity_used_on_pile
-                piles_remaining_stock -= pile_portion
-
-                # Si on a pris moins de 100% de la pile, on arrête (plus d'espace)
-                if pile_portion < 1.0:
-                    break
-
-            # Si on n'a rien pris, passer à l'item suivant
-            if total_clicks_done == 0:
+            # Pour les tableaux : vérifier si on a assez de place (min 0.5 = 50%)
+            if item["type"] == "paintings" and bag["capacity_remaining"] < 50.0:
                 continue
 
-            # Calculer la valeur gagnée
-            value_gained = total_piles_taken * item["value_per_pile"]
+            # realFill = min(capacité restante, stock disponible)
+            real_fill = min(bag["capacity_remaining"] / 100.0, max_fill)
 
-            # Ne pas ajouter l'item si la valeur est négligeable (< 100 GTA$)
+            if real_fill < 0.01:
+                continue
+
+            # Calculer les clics (traduction exacte du JavaScript)
+            # rest = partie fractionnaire en pourcentage
+            piles = real_fill / weight
+            full_piles = int(piles)
+            rest = round((piles - full_piles) * 100, 3)
+
+            # Clics = (piles complètes × nombre de clics par pile) + clics pour le reste
+            total_clicks = full_piles * len(pickup_steps) + find_closest_value(rest, pickup_steps)
+
+            # Correction +1 clic pour cocaine, cash, et weed (si multi-joueur)
+            if total_clicks % 10 != 0:
+                if item["type"] in ["cocaine", "cash"]:
+                    total_clicks += 1
+                elif item["type"] == "weed" and num_players > 1:
+                    total_clicks += 1
+
+            # Calculer la capacité utilisée
+            # Utiliser weight × piles pour obtenir la capacité exacte
+            capacity_used = real_fill * 100.0
+
+            # Calculer la valeur
+            piles_taken = real_fill / weight
+            value_gained = piles_taken * item["value_per_pile"]
+
+            # Filtrer les valeurs négligeables
             if value_gained < 100:
                 continue
+
+            # Cas spécial tableaux : afficher "X cuts" au lieu de "X clicks"
+            clicks_display = total_clicks * 4 if item["type"] == "paintings" else total_clicks
 
             bag["items"].append({
                 "type": item["type"],
                 "name": item["name"],
-                "piles": round(total_piles_taken, 2),
-                "clicks": round(total_clicks_done, 1),
-                "capacity": round(total_capacity_used, 2),
+                "piles": round(piles_taken, 2),
+                "clicks": clicks_display,
+                "capacity": round(capacity_used, 2),
                 "value": int(value_gained),
             })
 
+            bag["capacity_remaining"] -= capacity_used
+            bag["capacity_remaining"] = max(0, bag["capacity_remaining"])
             bag["total_value"] += int(value_gained)
-            item["remaining"] = piles_remaining_stock
+            item["remaining"] -= piles_taken
 
         bags.append(bag)
 
