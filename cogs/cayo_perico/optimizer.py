@@ -289,13 +289,42 @@ def optimize_bags(
             weight = loot_info["weight"]
             pickup_steps = loot_info["pickup_steps"]
 
+            # === SPECIAL CASE: PAINTINGS (MUST BE WHOLE UNITS) ===
+            if item["type"] == "paintings":
+                # Each painting = 50% of bag capacity, must take whole paintings only
+                max_paintings_by_space = int(bag["capacity_remaining"] / 50.0)
+                max_paintings_by_stock = int(item["remaining"])
+                paintings_to_take = min(max_paintings_by_space, max_paintings_by_stock)
+
+                if paintings_to_take == 0:
+                    continue
+
+                # Calculate exact values for whole paintings
+                capacity_used = paintings_to_take * 50.0
+                value_gained = paintings_to_take * item["value_per_pile"]
+                total_clicks = paintings_to_take * 4  # 1 click per painting, displayed as 4 cuts
+
+                bag["items"].append({
+                    "type": item["type"],
+                    "name": item["name"],
+                    "piles": float(paintings_to_take),  # Whole number only
+                    "clicks": total_clicks,
+                    "capacity": capacity_used,
+                    "value": int(value_gained),
+                })
+
+                bag["capacity_remaining"] -= capacity_used
+                bag["capacity_remaining"] = max(0, bag["capacity_remaining"])
+                bag["total_value"] += int(value_gained)
+                item["remaining"] -= paintings_to_take
+
+                continue  # Skip normal processing for paintings
+
+            # === NORMAL PROCESSING FOR OTHER LOOT TYPES ===
+
             # Calculer realFill (quantité réelle à prendre)
             # maxFill = combien on peut prendre max avec le stock disponible
             max_fill = item["remaining"] * weight
-
-            # Pour les tableaux : vérifier si on a assez de place (min 0.5 = 50%)
-            if item["type"] == "paintings" and bag["capacity_remaining"] < 50.0:
-                continue
 
             # realFill = min(capacité restante, stock disponible)
             real_fill = min(bag["capacity_remaining"] / 100.0, max_fill)
@@ -331,8 +360,8 @@ def optimize_bags(
             if value_gained < 100:
                 continue
 
-            # Cas spécial tableaux : afficher "X cuts" au lieu de "X clicks"
-            clicks_display = total_clicks * 4 if item["type"] == "paintings" else total_clicks
+            # Clicks display (paintings are already handled above)
+            clicks_display = total_clicks
 
             bag["items"].append({
                 "type": item["type"],
