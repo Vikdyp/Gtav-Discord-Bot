@@ -931,7 +931,7 @@ class EliteSelectView(discord.ui.View):
         self.elite_completed = (select.values[0] == "yes")
 
         # Ouvrir le Modal pour saisir les gains
-        modal = FinishHeistModal(self.heist, self.participants, self.service, self.elite_completed)
+        modal = FinishHeistModal(self.heist, self.participants, self.service, self.elite_completed, interaction.message)
         await interaction.response.send_modal(modal)
 
         # Désactiver la vue
@@ -1349,25 +1349,45 @@ class SharesModal(discord.ui.Modal, title="Répartition des parts"):
 class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
     """Modal pour saisir les gains réels de chaque participant."""
 
-    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService, elite_completed: bool):
+    def __init__(self, heist: Dict, participants: List[int], service: CayoPericoService, elite_completed: bool, elite_message: Optional[discord.Message] = None):
         super().__init__()
         self.heist = heist
         self.participants = participants
         self.service = service
         self.elite_completed = elite_completed  # Déjà déterminé par le Select
+        self.elite_message = elite_message  # Message éphémère à supprimer
 
-        # Créer un TextInput par participant (max 4 selon limite joueurs)
-        for idx, participant_id in enumerate(participants[:4]):
-            text_input = discord.ui.TextInput(
-                label=f"Gain Joueur {idx + 1}",
-                placeholder="Ex: 450000",
-                max_length=10,
-                required=True
-            )
-            self.add_item(text_input)
+        # Ajouter le champ pour le temps de mission
+        self.mission_time_input = discord.ui.TextInput(
+            label="Temps de mission (mm:ss)",
+            placeholder="Ex: 12:34",
+            max_length=10,
+            required=True
+        )
+        self.add_item(self.mission_time_input)
+
+        # Ajouter le champ pour la valeur du coffre-fort
+        self.safe_value_input = discord.ui.TextInput(
+            label="Valeur du coffre-fort (GTA$)",
+            placeholder="Ex: 60000",
+            max_length=10,
+            required=True
+        )
+        self.add_item(self.safe_value_input)
+
+        # Créer un seul champ pour tous les gains (séparés par des espaces ou virgules)
+        gains_placeholder = " ".join([f"J{idx+1}:450000" for idx in range(len(participants))])
+        self.gains_input = discord.ui.TextInput(
+            label=f"Gains de tous les joueurs ({len(participants)})",
+            placeholder=gains_placeholder[:100],  # Limiter la taille du placeholder
+            style=discord.TextStyle.paragraph,
+            max_length=200,
+            required=True
+        )
+        self.add_item(self.gains_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
 
         from cogs.cayo_perico.optimizer import (
             PRIMARY_TARGETS,
@@ -1382,16 +1402,39 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         )
         from datetime import datetime, timezone
 
-        # Parser les gains réels (tous les enfants sont maintenant des TextInput de gains)
+        # Parser le temps de mission (format mm:ss)
+        mission_time_str = self.mission_time_input.value.strip()
+        try:
+            if ":" in mission_time_str:
+                minutes, seconds = mission_time_str.split(":")
+                mission_time_seconds = int(minutes) * 60 + int(seconds)
+            else:
+                mission_time_seconds = int(mission_time_str) * 60  # Si juste un nombre, on assume des minutes
+        except:
+            mission_time_seconds = 0
+
+        # Parser la valeur du coffre-fort
+        try:
+            safe_value_real = int(self.safe_value_input.value.strip())
+        except:
+            safe_value_real = SAFE_VALUE  # Valeur par défaut
+
+        # Parser les gains réels (format: "450000 380000" ou "J1:450000 J2:380000" ou "450000, 380000")
         real_gains = {}
-        for idx, item in enumerate(self.children):
-            if idx >= len(self.participants):
-                break
-            participant_id = self.participants[idx]
-            try:
-                real_gain = int(item.value.strip())
-                real_gains[participant_id] = real_gain
-            except ValueError:
+        gains_text = self.gains_input.value.strip()
+
+        # Essayer de parser avec différents séparateurs
+        import re
+        # Extraire tous les nombres (en ignorant les préfixes J1:, J2:, etc.)
+        numbers = re.findall(r'(\d+)', gains_text)
+
+        for idx, participant_id in enumerate(self.participants):
+            if idx < len(numbers):
+                try:
+                    real_gains[participant_id] = int(numbers[idx])
+                except ValueError:
+                    real_gains[participant_id] = 0
+            else:
                 real_gains[participant_id] = 0
 
         # Sauvegarder en DB
@@ -1436,9 +1479,16 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         predicted_gains_list = calculate_player_gains(total_net, shares, self.elite_completed, hard_mode)
         predicted_gains = {self.participants[idx]: predicted_gains_list[idx] for idx in range(len(self.participants))}
 
-        # 7. Calculer les temps de préparation et mission
+        # 7. Calculer le temps de préparation et formater le temps de mission saisi
         prep_time = format_duration(heist_full.get("created_at"), heist_full.get("ready_at"))
-        mission_time = format_duration(heist_full.get("ready_at"), heist_full.get("finished_at"))
+
+        # Formater le temps de mission saisi par l'utilisateur
+        minutes_mission = mission_time_seconds // 60
+        seconds_mission = mission_time_seconds % 60
+        if minutes_mission > 0:
+            mission_time = f"{minutes_mission}min {seconds_mission}s"
+        else:
+            mission_time = f"{seconds_mission}s"
 
         # 8. Calculer les timers cooldown
         num_players = len(self.participants)
@@ -1462,7 +1512,8 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             name="⏱️ Statistiques de temps",
             value=(
                 f"• Temps de préparation : **{prep_time}**\n"
-                f"• Temps de mission : **{mission_time}**"
+                f"• Temps de mission : **{mission_time}**\n"
+                f"• Valeur coffre-fort : **{safe_value_real:,} GTA$**".replace(",", " ")
             ),
             inline=False
         )
@@ -1480,7 +1531,33 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             inline=False
         )
 
-        await interaction.followup.send(embed=embed)
+        # Envoyer l'embed de résultats
+        await interaction.followup.send(embed=embed, ephemeral=False)
+
+        # Supprimer le message principal de préparation
+        try:
+            # Récupérer le message original du braquage
+            if interaction.guild and heist_full.get("channel_id") and heist_full.get("message_id"):
+                channel = interaction.guild.get_channel(heist_full["channel_id"])
+                if channel:
+                    try:
+                        original_message = await channel.fetch_message(heist_full["message_id"])
+                        await original_message.delete()
+                        logger.info(f"[Cayo] Message principal du braquage {self.heist['id']} supprimé")
+                    except discord.NotFound:
+                        logger.warning(f"[Cayo] Message principal du braquage {self.heist['id']} déjà supprimé")
+                    except Exception as e:
+                        logger.error(f"[Cayo] Erreur lors de la suppression du message principal: {e}")
+        except Exception as e:
+            logger.error(f"[Cayo] Erreur lors de la récupération du message principal: {e}")
+
+        # Supprimer le message éphémère de sélection Elite
+        if self.elite_message:
+            try:
+                await self.elite_message.delete()
+                logger.info(f"[Cayo] Message Elite du braquage {self.heist['id']} supprimé")
+            except Exception as e:
+                logger.error(f"[Cayo] Erreur lors de la suppression du message Elite: {e}")
 
 
 # ==================== COG PRINCIPAL ====================

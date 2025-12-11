@@ -101,7 +101,7 @@ def format_bag_plan_embed(
     return "\n".join(lines)
 
 
-def format_bag_plan_private(bag: BagPlan, player_number: int) -> str:
+def format_bag_plan_private(bag: BagPlan, player_number: int) -> "discord.Embed":
     """
     Formate le plan de sac pour un message privé envoyé à un joueur.
 
@@ -110,31 +110,33 @@ def format_bag_plan_private(bag: BagPlan, player_number: int) -> str:
         player_number: Numéro du joueur (1, 2, 3...)
 
     Returns:
-        Texte formaté pour DM
+        Embed Discord avec le plan de sac
     """
-    lines = [
-        f"🎒 **Ton plan de sac (Joueur {player_number})**",
-        "",
-    ]
+    import discord
+
+    embed = discord.Embed(
+        title=f"🎒 Ton plan de sac (Joueur {player_number})",
+        color=discord.Color.blue()
+    )
 
     if not bag["items"]:
-        lines.append("Tu n'as rien à prendre dans les objectifs secondaires.")
-        lines.append("(Pas assez de place ou plus de stock disponible)")
+        embed.description = "Tu n'as rien à prendre dans les objectifs secondaires.\n(Pas assez de place ou plus de stock disponible)"
     else:
-        lines.append("**À prendre dans ton sac :**")
-        lines.append("")
+        lines = ["**À prendre dans ton sac :**\n"]
 
         for item in bag["items"]:
             piles_str = f"{item['piles']}x" if item['piles'] != 1.0 else "1 pile"
+            clicks_str = f"{item['clicks']:.1f}" if item['clicks'] != int(item['clicks']) else str(int(item['clicks']))
             lines.append(f"• **{item['name']}** : {piles_str}")
-            lines.append(f"  → {item['clicks']} clics")
+            lines.append(f"  → {clicks_str} clics")
             lines.append(f"  → {item['capacity']:.1f}% du sac")
             lines.append(f"  → Valeur : {format_money(item['value'])}")
             lines.append("")
 
         lines.append(f"💰 **Total estimé pour toi : {format_money(bag['total_value'])}**")
+        embed.description = "\n".join(lines)
 
-    return "\n".join(lines)
+    return embed
 
 
 def format_results_comparison(

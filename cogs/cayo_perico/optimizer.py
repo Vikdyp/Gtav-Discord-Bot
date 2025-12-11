@@ -460,14 +460,14 @@ def calculate_player_gains(
 
 def format_next_heist_time(finished_at, num_players: int) -> str:
     """
-    Calcule et formate le temps restant avant le prochain braquage.
+    Calcule et formate le temps restant avant le prochain braquage avec timestamp Discord.
 
     Args:
         finished_at: datetime de fin du braquage (timezone-aware)
         num_players: Nombre de joueurs (1 = solo, 2+ = multi)
 
     Returns:
-        "Disponible dans 1h23min" ou "Disponible maintenant"
+        "Disponible <t:timestamp:R>" ou "✅ Disponible maintenant"
     """
     from datetime import datetime, timezone, timedelta
 
@@ -484,27 +484,21 @@ def format_next_heist_time(finished_at, num_players: int) -> str:
     if time_remaining.total_seconds() <= 0:
         return "✅ Disponible maintenant"
 
-    # Formater en heures et minutes
-    total_minutes = int(time_remaining.total_seconds() / 60)
-    hours = total_minutes // 60
-    minutes = total_minutes % 60
-
-    if hours > 0:
-        return f"⏳ Disponible dans {hours}h{minutes:02d}min"
-    else:
-        return f"⏳ Disponible dans {minutes}min"
+    # Timestamp Unix pour Discord
+    timestamp = int(next_available.timestamp())
+    return f"⏳ Disponible <t:{timestamp}:R>"
 
 
 def format_hard_mode_deadline(finished_at, num_players: int) -> str:
     """
-    Calcule et formate le temps restant pour le mode difficile.
+    Calcule et formate le temps restant pour le mode difficile avec timestamps Discord.
 
     Args:
         finished_at: datetime de fin du braquage (timezone-aware)
         num_players: Nombre de joueurs (1 = solo, 2+ = multi)
 
     Returns:
-        "Mode difficile encore 32min" ou "Mode difficile expiré"
+        "Mode difficile expire <t:timestamp:R>" ou "❌ Mode difficile expiré"
     """
     from datetime import datetime, timezone, timedelta
 
@@ -520,28 +514,16 @@ def format_hard_mode_deadline(finished_at, num_players: int) -> str:
     if time_remaining.total_seconds() <= 0:
         return "❌ Mode difficile expiré"
 
+    # Timestamps Unix pour Discord
+    timestamp_available = int(next_available.timestamp())
+    timestamp_deadline = int(hard_mode_deadline.timestamp())
+
     # Si le braquage n'est pas encore disponible, le mode difficile n'a pas encore commencé
     if now < next_available:
-        # Temps avant que le mode difficile commence
-        time_until_available = next_available - now
-        total_minutes = int(time_until_available.total_seconds() / 60)
-        hours = total_minutes // 60
-        minutes = total_minutes % 60
-
-        if hours > 0:
-            return f"🔒 Mode difficile disponible dans {hours}h{minutes:02d}min (durée: 48min)"
-        else:
-            return f"🔒 Mode difficile disponible dans {minutes}min (durée: 48min)"
+        return f"🔒 Mode difficile disponible <t:{timestamp_available}:R> (expire <t:{timestamp_deadline}:R>)"
 
     # Le mode difficile est actuellement disponible
-    total_minutes = int(time_remaining.total_seconds() / 60)
-    hours = total_minutes // 60
-    minutes = total_minutes % 60
-
-    if hours > 0:
-        return f"⚡ Mode difficile encore {hours}h{minutes:02d}min"
-    else:
-        return f"⚡ Mode difficile encore {minutes}min"
+    return f"⚡ Mode difficile expire <t:{timestamp_deadline}:R>"
 
 
 def format_duration(start_time, end_time) -> str:
