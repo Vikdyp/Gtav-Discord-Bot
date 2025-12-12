@@ -332,18 +332,12 @@ class Migrator:
             True si la migration est appliquée, False sinon
         """
         try:
-            # Vérifier si la colonne avg_safe_amount existe dans la vue matérialisée
-            query = """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public'
-                  AND table_name = 'cayo_user_stats'
-                  AND column_name = 'avg_safe_amount'
-            """
-            row = await self.db.fetchrow(query)
-            return row is not None
-        except Exception as e:
-            logger.error(f"[Migrator] Erreur lors de la vérification de avg_safe_amount : {e}")
+            # Vérifier en interrogeant directement la vue (plus fiable que information_schema)
+            query = "SELECT avg_safe_amount FROM cayo_user_stats LIMIT 0"
+            await self.db.fetchrow(query)
+            return True  # Si pas d'erreur, la colonne existe
+        except Exception:
+            # Si erreur (colonne inexistante ou vue n'existe pas), la migration n'est pas appliquée
             return False
 
     async def apply_avg_safe_amount(self) -> tuple[bool, str]:
