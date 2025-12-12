@@ -173,7 +173,7 @@ class LeaderboardManager(commands.Cog):
         elif lb_type == "total_heists":
             return await self.stats_service.get_top_total_heists(guild_id)
         elif lb_type == "avg_gain":
-            return await self.stats_service.get_top_avg_gain(guild_id)
+            return await self.stats_service.get_top_avg_gain(guild_id, min_heists=1)
         elif lb_type == "elite_count":
             return await self.stats_service.get_top_elite_count(guild_id)
         elif lb_type == "speed_run":

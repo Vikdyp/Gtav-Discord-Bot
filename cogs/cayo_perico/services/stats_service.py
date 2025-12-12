@@ -88,14 +88,14 @@ class CayoStatsService:
         rows = await self.db.fetch(query, guild_id, limit)
         return [dict(row) for row in rows]
 
-    async def get_top_avg_gain(self, guild_id: int, limit: int = 10, min_heists: int = 5) -> List[Dict]:
+    async def get_top_avg_gain(self, guild_id: int, limit: int = 10, min_heists: int = 3) -> List[Dict]:
         """
         Récupère le top des joueurs par gain moyen.
 
         Args:
             guild_id: ID du serveur
             limit: Nombre de joueurs
-            min_heists: Nombre minimum de braquages pour être éligible
+            min_heists: Nombre minimum de braquages pour être éligible (défaut: 3)
         """
         self._ensure_db()
 
