@@ -195,9 +195,17 @@ def format_profile_embed(
 
     elite_rate = profile.get('elite_rate_percent', 0)
 
+    # Moyenne du coffre-fort (uniquement en tant que leader)
+    avg_safe = profile.get('avg_safe_amount')
+    if avg_safe and avg_safe > 0:
+        avg_safe_fmt = format_money(int(avg_safe))
+    else:
+        avg_safe_fmt = "N/A"
+
     records = (
         f"🌟 **Meilleur gain:** {best_gain_fmt}\n"
         f"⚡ **Temps le plus rapide:** {best_time_text}\n"
+        f"💰 **Coffre-fort moyen:** {avg_safe_fmt}\n"
         f"⭐ **Elite Challenge:** {profile['elite_count']}/{profile['total_heists']} ({elite_rate}%)"
     )
 

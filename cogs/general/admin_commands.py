@@ -192,6 +192,7 @@ class GeneralCommands(commands.Cog):
             app_commands.Choice(name="Appliquer Ready At (003)", value="apply_ready_at"),
             app_commands.Choice(name="Appliquer Office Paintings (004)", value="apply_office_paintings"),
             app_commands.Choice(name="Appliquer Stats & Notifications (005)", value="apply_stats_notifications"),
+            app_commands.Choice(name="Appliquer Moyenne Coffre-fort (006)", value="apply_avg_safe"),
         ]
     )
     async def migrate(
@@ -367,6 +368,33 @@ class GeneralCommands(commands.Cog):
                     self.logger.info(f"[Migrate] Migration Stats & Notifications (005) appliquée par {interaction.user}")
                 else:
                     self.logger.warning(f"[Migrate] Échec de la migration Stats & Notifications (005) : {message}")
+
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Erreur critique",
+                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed)
+                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
+
+        # ---- ACTION: APPLY MOYENNE COFFRE-FORT (006) ----
+        elif action_value == "apply_avg_safe":
+            try:
+                success, message = await migrator.apply_avg_safe_amount()
+
+                embed = discord.Embed(
+                    title="🔄 Migration Moyenne Coffre-fort (006)",
+                    description=message,
+                    color=discord.Color.green() if success else discord.Color.red()
+                )
+
+                await interaction.followup.send(embed=embed)
+
+                if success:
+                    self.logger.info(f"[Migrate] Migration Moyenne Coffre-fort (006) appliquée par {interaction.user}")
+                else:
+                    self.logger.warning(f"[Migrate] Échec de la migration Moyenne Coffre-fort (006) : {message}")
 
             except Exception as e:
                 embed = discord.Embed(

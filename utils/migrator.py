@@ -266,6 +266,11 @@ class Migrator:
         status_stats = "✅ Appliquée" if stats_applied else "⏳ En attente"
         lines.append(f"• **Stats & Notifications** (005): {status_stats}")
 
+        # Migration 006 : Moyenne du coffre-fort
+        avg_safe_applied = await self.check_avg_safe_amount()
+        status_avg_safe = "✅ Appliquée" if avg_safe_applied else "⏳ En attente"
+        lines.append(f"• **Moyenne Coffre-fort** (006): {status_avg_safe}")
+
         return "\n".join(lines)
 
     async def check_stats_and_notifications(self) -> bool:
@@ -317,4 +322,52 @@ class Migrator:
 
         except Exception as e:
             logger.error(f"[Migrator] Erreur lors de la migration 005 : {e}")
+            return False, f"❌ Erreur lors de la migration : {str(e)}"
+
+    async def check_avg_safe_amount(self) -> bool:
+        """
+        Vérifie si la migration 006 (avg_safe_amount) a été appliquée.
+
+        Returns:
+            True si la migration est appliquée, False sinon
+        """
+        # Vérifier si la colonne avg_safe_amount existe dans la vue matérialisée
+        query = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'cayo_user_stats'
+              AND column_name = 'avg_safe_amount'
+        """
+        row = await self.db.fetchrow(query)
+        return row is not None
+
+    async def apply_avg_safe_amount(self) -> tuple[bool, str]:
+        """
+        Applique la migration 006 (avg_safe_amount).
+
+        Cette migration ajoute le champ avg_safe_amount à la vue matérialisée cayo_user_stats.
+
+        Returns:
+            Tuple (success, message)
+        """
+        try:
+            if await self.check_avg_safe_amount():
+                return True, "✅ Migration déjà appliquée (rien à faire)"
+
+            # Lire le fichier
+            migration_file = Path("migrations/006_add_avg_safe_amount.sql")
+            if not migration_file.exists():
+                return False, f"❌ Fichier de migration introuvable : {migration_file}"
+
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+
+            # Exécuter
+            await self.db.execute(sql)
+
+            logger.info("[Migrator] Migration 006 (avg_safe_amount) appliquée avec succès")
+            return True, "✅ Migration 006 (Moyenne Coffre-fort) appliquée avec succès !"
+
+        except Exception as e:
+            logger.error(f"[Migrator] Erreur lors de la migration 006 : {e}")
             return False, f"❌ Erreur lors de la migration : {str(e)}"

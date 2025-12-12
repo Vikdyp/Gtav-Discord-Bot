@@ -452,7 +452,8 @@ def calculate_loss(
 def calculate_estimated_loot(
     primary_target: str,
     bags: List[BagPlan],
-    hard_mode: bool
+    hard_mode: bool,
+    safe_amount: int = None
 ) -> int:
     """
     Calcule le butin estimé RÉEL basé sur ce qui rentre dans les sacs optimisés.
@@ -461,6 +462,7 @@ def calculate_estimated_loot(
         primary_target: Clé de l'objectif principal
         bags: Plans de sac optimisés générés par optimize_bags()
         hard_mode: True si mode difficile (bonus +10% UNIQUEMENT sur primaire)
+        safe_amount: Valeur du coffre-fort (si None, utilise la moyenne globale ou SAFE_VALUE par défaut)
 
     Returns:
         Valeur totale estimée en GTA$
@@ -474,7 +476,10 @@ def calculate_estimated_loot(
     # Somme des valeurs dans les sacs optimisés
     secondary_value = sum(bag["total_value"] for bag in bags)
 
-    total = primary_value + secondary_value + SAFE_VALUE
+    # Utiliser la valeur du coffre fournie, sinon la valeur par défaut
+    safe_value = safe_amount if safe_amount is not None else SAFE_VALUE
+
+    total = primary_value + secondary_value + safe_value
 
     return total
 

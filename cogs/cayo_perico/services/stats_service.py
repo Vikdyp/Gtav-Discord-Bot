@@ -215,6 +215,7 @@ class CayoStatsService:
                 s.last_heist,
                 s.elite_count,
                 s.best_mission_time_seconds,
+                s.avg_safe_amount,
                 CAST(s.elite_count * 100.0 / NULLIF(s.total_heists, 0) AS INTEGER) as elite_rate_percent
             FROM cayo_user_stats s
             INNER JOIN users u ON s.user_id = u.id
@@ -416,6 +417,35 @@ class CayoStatsService:
 
         rows = await self.db.fetch(query, guild_id, weeks)
         return [dict(row) for row in rows]
+
+    async def get_global_avg_safe_amount(self) -> int:
+        """
+        Récupère la moyenne globale des coffres-forts (tous joueurs, tous braquages).
+
+        Cette valeur est utilisée pour les estimations de gains lors de la création
+        d'un nouveau braquage, au lieu d'utiliser une valeur fixe.
+
+        Returns:
+            Moyenne des coffres-forts en GTA$, ou 60000 par défaut si aucune donnée
+        """
+        self._ensure_db()
+
+        query = """
+            SELECT AVG(safe_amount) as avg_safe
+            FROM cayo_heists
+            WHERE safe_amount IS NOT NULL
+              AND safe_amount > 0
+              AND status = 'finished'
+        """
+
+        row = await self.db.fetchrow(query)
+        if row and row['avg_safe']:
+            avg = int(row['avg_safe'])
+            self.logger.info(f"[Stats] Moyenne globale du coffre-fort: {avg} GTA$")
+            return avg
+
+        self.logger.info("[Stats] Aucune donnée de coffre-fort, utilisation de la valeur par défaut: 60000 GTA$")
+        return 60000  # Valeur par défaut
 
     # ==================== GESTION MESSAGES LEADERBOARD ====================
 

@@ -18,6 +18,7 @@ from discord.ext import commands
 from utils.logging_config import logger
 from utils.view_manager import register_persistent_view
 from .services.cayo_perico_service import CayoPericoService
+from .services.stats_service import CayoStatsService
 from .optimizer import (
     PRIMARY_TARGETS,
     SECONDARY_TARGETS,
@@ -316,9 +317,13 @@ class ConfigView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        # Optimiser les sacs et calculer le butin estimé RÉEL
+        # Récupérer la moyenne globale du coffre-fort pour l'estimation
+        stats_service = CayoStatsService(self.service.db)
+        global_avg_safe = await stats_service.get_global_avg_safe_amount()
+
+        # Optimiser les sacs et calculer le butin estimé RÉEL avec la moyenne globale
         optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True, office_paintings=self.office_paintings)
-        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode)
+        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode, safe_amount=global_avg_safe)
 
         # Créer l'embed final
         embed = discord.Embed(
@@ -1561,6 +1566,9 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         # Mettre à jour le temps de mission
         await self._update_mission_time(self.heist["id"], mission_time_seconds)
 
+        # Sauvegarder la vraie valeur du coffre-fort
+        await self._update_safe_amount(self.heist["id"], safe_value_real)
+
         # Enregistrer le cooldown actif pour les notifications
         await self._register_active_cooldown(self.heist, finished_at, len(self.participants))
 
@@ -1585,7 +1593,8 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         secondary_value = sum(bag.get("total_value", 0) for bag in optimized_plan)
 
         # 4. Calculer le total net (primaire + secondaires + coffre) × 88%
-        total_net = calculate_net_total(primary_value, secondary_value, SAFE_VALUE)
+        # Utiliser la vraie valeur du coffre saisie par l'utilisateur au lieu de la constante
+        total_net = calculate_net_total(primary_value, secondary_value, safe_value_real)
 
         # 5. Récupérer ou calculer les parts
         custom_shares = await self.service.get_custom_shares(self.heist["id"])
@@ -1692,6 +1701,20 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
 
         await self.service.db.execute(query, mission_time_seconds, heist_id)
         logger.info(f"[Cayo] Temps de mission enregistré: {mission_time_seconds}s pour heist {heist_id}")
+
+    async def _update_safe_amount(self, heist_id: int, safe_amount: int):
+        """Met à jour la valeur du coffre-fort dans la table cayo_heists."""
+        if self.service.db is None:
+            return
+
+        query = """
+            UPDATE cayo_heists
+            SET safe_amount = %s
+            WHERE id = %s
+        """
+
+        await self.service.db.execute(query, safe_amount, heist_id)
+        logger.info(f"[Cayo] Valeur coffre-fort enregistrée: {safe_amount} GTA$ pour heist {heist_id}")
 
     async def _register_active_cooldown(self, heist: Dict, finished_at: datetime, num_players: int):
         """Enregistre le cooldown actif pour les notifications."""
