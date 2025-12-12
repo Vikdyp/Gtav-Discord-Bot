@@ -1680,13 +1680,8 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         except Exception as e:
             logger.error(f"[Cayo] Erreur lors de la récupération du message principal: {e}")
 
-        # Supprimer le message éphémère de sélection Elite
-        if self.elite_message:
-            try:
-                await self.elite_message.delete()
-                logger.info(f"[Cayo] Message Elite du braquage {self.heist['id']} supprimé")
-            except Exception as e:
-                logger.error(f"[Cayo] Erreur lors de la suppression du message Elite: {e}")
+        # Note: Le message Elite est éphémère (ephemeral=True), donc il se supprime automatiquement
+        # Pas besoin de le supprimer manuellement
 
     async def _update_mission_time(self, heist_id: int, mission_time_seconds: int):
         """Met à jour le temps de mission dans la table cayo_heists."""
@@ -1787,9 +1782,22 @@ def _cayo_view_factory(bot: commands.Bot) -> discord.ui.View:
     """
     Factory utilisée par utils.view_manager pour recréer la View persistante
     au redémarrage du bot.
+
+    Note: On crée une View avec tous les boutons possibles car on ne connaît pas
+    le statut spécifique de chaque braquage au redémarrage. Les callbacks
+    récupèrent le braquage depuis la DB et vérifient le statut dynamiquement.
     """
     service = CayoPericoService(getattr(bot, "db", None))
-    return CayoPericoView(service)
+
+    # Créer une View avec tous les boutons (statut "ready" a tous les boutons)
+    view = discord.ui.View(timeout=None)
+    view.add_item(DetailsButton(service))
+    view.add_item(JoinButton(service))
+    view.add_item(LeaveButton(service))
+    view.add_item(ReadyButton(service))
+    view.add_item(FinishButton(service))
+
+    return view
 
 
 # On enregistre la factory dès l'import du module
