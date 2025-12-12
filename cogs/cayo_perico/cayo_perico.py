@@ -1556,9 +1556,6 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
             else:
                 real_gains[participant_id] = 0
 
-        # Sauvegarder en DB
-        await self.service.save_real_gains(self.heist["id"], real_gains)
-
         total_real = sum(real_gains.values())
         finished_at = datetime.now(timezone.utc)
         await self.service.close_heist(self.heist["id"], total_real, self.elite_completed, finished_at)
@@ -1607,6 +1604,12 @@ class FinishHeistModal(discord.ui.Modal, title="Résultats du braquage"):
         # 6. Calculer les gains prévus par joueur (avec bonus Elite si validé)
         predicted_gains_list = calculate_player_gains(total_net, shares, self.elite_completed, hard_mode)
         predicted_gains = {self.participants[idx]: predicted_gains_list[idx] for idx in range(len(self.participants))}
+
+        # Sauvegarder les gains réels et prévus en DB (avec bonus Elite inclus)
+        await self.service.save_real_gains(self.heist["id"], real_gains, predicted_gains)
+
+        # Refresh les stats matérialisées pour refléter immédiatement le nouveau braquage
+        await self.service.refresh_materialized_stats()
 
         # 7. Calculer le temps de préparation et formater le temps de mission saisi
         prep_time = format_duration(heist_full.get("created_at"), heist_full.get("ready_at"))

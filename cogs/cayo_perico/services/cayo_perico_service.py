@@ -378,7 +378,8 @@ class CayoPericoService:
     async def save_real_gains(
         self,
         heist_id: int,
-        real_gains: Dict[int, int]
+        real_gains: Dict[int, int],
+        predicted_gains: Dict[int, int] = None
     ) -> None:
         """
         Sauvegarde les gains réels de chaque participant.
@@ -386,6 +387,7 @@ class CayoPericoService:
         Args:
             heist_id: ID du braquage
             real_gains: {discord_id: montant_réel}
+            predicted_gains: {discord_id: montant_prévu avec Elite} (optionnel, sinon utilise optimized_plan)
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
@@ -402,10 +404,13 @@ class CayoPericoService:
         for idx, participant_discord_id in enumerate(participants):
             user_id = await self._get_or_create_user(participant_discord_id)
 
-            # Récupérer le gain prévu depuis le plan
-            predicted_gain = 0
-            if idx < len(optimized_plan):
+            # Utiliser predicted_gains si fourni, sinon fallback sur optimized_plan
+            if predicted_gains is not None and participant_discord_id in predicted_gains:
+                predicted_gain = predicted_gains[participant_discord_id]
+            elif idx < len(optimized_plan):
                 predicted_gain = optimized_plan[idx].get("total_value", 0)
+            else:
+                predicted_gain = 0
 
             real_gain = real_gains.get(participant_discord_id, 0)
 
