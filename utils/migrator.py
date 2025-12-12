@@ -22,10 +22,10 @@ class Migrator:
             SELECT FROM information_schema.tables
             WHERE table_schema = 'public'
             AND table_name = %s
-        );
+        ) as exists;
         """
         row = await self.db.fetchrow(query, table_name)
-        return row[0] if row else False
+        return row['exists'] if row else False
 
     async def _column_exists(self, table_name: str, column_name: str) -> bool:
         """Vérifie si une colonne existe dans une table."""
@@ -35,10 +35,10 @@ class Migrator:
             WHERE table_schema = 'public'
             AND table_name = %s
             AND column_name = %s
-        );
+        ) as exists;
         """
         row = await self.db.fetchrow(query, table_name, column_name)
-        return row[0] if row else False
+        return row['exists'] if row else False
 
     async def check_cayo_v2_migration(self) -> bool:
         """
@@ -331,15 +331,20 @@ class Migrator:
         Returns:
             True si la migration est appliquée, False sinon
         """
-        # Vérifier si la colonne avg_safe_amount existe dans la vue matérialisée
-        query = """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name = 'cayo_user_stats'
-              AND column_name = 'avg_safe_amount'
-        """
-        row = await self.db.fetchrow(query)
-        return row is not None
+        try:
+            # Vérifier si la colonne avg_safe_amount existe dans la vue matérialisée
+            query = """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'cayo_user_stats'
+                  AND column_name = 'avg_safe_amount'
+            """
+            row = await self.db.fetchrow(query)
+            return row is not None
+        except Exception as e:
+            logger.error(f"[Migrator] Erreur lors de la vérification de avg_safe_amount : {e}")
+            return False
 
     async def apply_avg_safe_amount(self) -> tuple[bool, str]:
         """
