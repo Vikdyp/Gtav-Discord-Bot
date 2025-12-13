@@ -210,11 +210,17 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         # Stocker séparément le nombre de tableaux du bureau
         self.office_paintings_count = office_paintings_count
 
+        # Récupérer la moyenne globale du coffre-fort
+        from .services.stats_service import CayoStatsService
+        stats_service = CayoStatsService(self.service.db)
+        global_avg_safe = await stats_service.get_global_avg_safe_amount()
+        self.global_avg_safe = global_avg_safe
+
         # Créer un embed de configuration
         hard_mode = False
         # Calculer avec les sacs optimisés (solo par défaut)
         optimized_bags = optimize_bags(secondary_loot, num_players=1, is_solo=True, office_paintings=office_paintings_count)
-        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, hard_mode)
+        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, hard_mode, safe_amount=global_avg_safe)
 
         embed = discord.Embed(
             title="💣 Configuration Cayo Perico",
@@ -222,7 +228,8 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
                 self.primary_target,
                 secondary_loot,
                 hard_mode,
-                total_loot
+                total_loot,
+                safe_amount=global_avg_safe
             ),
             color=discord.Color.gold()
         )
@@ -243,20 +250,21 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         )
 
         # View avec boutons de configuration
-        view = ConfigView(self.primary_target, secondary_loot, self.service, office_paintings_count)
+        view = ConfigView(self.primary_target, secondary_loot, self.service, office_paintings_count, global_avg_safe)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class ConfigView(discord.ui.View):
     """View pour configurer le mode difficile et confirmer."""
 
-    def __init__(self, primary_target: str, secondary_loot: Dict[str, int], service: CayoPericoService, office_paintings: int = 0):
+    def __init__(self, primary_target: str, secondary_loot: Dict[str, int], service: CayoPericoService, office_paintings: int = 0, global_avg_safe: int = 60000):
         super().__init__(timeout=300)
         self.primary_target = primary_target
         self.secondary_loot = secondary_loot
         self.hard_mode = False
         self.service = service
         self.office_paintings = office_paintings
+        self.global_avg_safe = global_avg_safe
 
     @discord.ui.button(
         label="Mode difficile : ❌ Non",
@@ -272,7 +280,7 @@ class ConfigView(discord.ui.View):
 
         # Recalculer et mettre à jour l'embed
         optimized_bags = optimize_bags(self.secondary_loot, num_players=1, is_solo=True, office_paintings=self.office_paintings)
-        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode)
+        total_loot = calculate_estimated_loot(self.primary_target, optimized_bags, self.hard_mode, safe_amount=self.global_avg_safe)
 
         embed = discord.Embed(
             title="💣 Configuration Cayo Perico",
@@ -280,7 +288,8 @@ class ConfigView(discord.ui.View):
                 self.primary_target,
                 self.secondary_loot,
                 self.hard_mode,
-                total_loot
+                total_loot,
+                safe_amount=self.global_avg_safe
             ),
             color=discord.Color.gold()
         )
@@ -1392,11 +1401,15 @@ class SharesModal(discord.ui.Modal, title="Répartition des parts"):
                 office_paintings=heist_full.get("office_paintings", 0)
             )
 
+            # Récupérer la valeur du coffre-fort depuis le braquage
+            safe_amount = heist_full.get("safe_amount", 60000)
+
             # Recalculer le butin estimé
             total_loot = calculate_estimated_loot(
                 heist_full["primary_loot"],
                 optimized_bags,
-                heist_full.get("hard_mode", False)
+                heist_full.get("hard_mode", False),
+                safe_amount=safe_amount
             )
 
             # Construire le nouvel embed
@@ -1422,7 +1435,8 @@ class SharesModal(discord.ui.Modal, title="Répartition des parts"):
                     heist_full["primary_loot"],
                     heist_full["secondary_loot"],
                     heist_full.get("hard_mode", False),
-                    total_loot
+                    total_loot,
+                    safe_amount=safe_amount
                 ),
                 inline=False
             )
