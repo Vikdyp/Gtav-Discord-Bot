@@ -341,7 +341,8 @@ class ConfigView(discord.ui.View):
                 self.primary_target,
                 self.secondary_loot,
                 self.hard_mode,
-                total_loot
+                total_loot,
+                global_avg_safe
             ),
             inline=False
         )
@@ -528,7 +529,8 @@ class JoinButton(discord.ui.Button):
                 heist["primary_loot"],
                 heist["secondary_loot"],
                 heist.get("hard_mode", False),
-                total_loot
+                total_loot,
+                heist.get("safe_amount", 60000)
             ),
             inline=False
         )
@@ -693,7 +695,8 @@ class LeaveButton(discord.ui.Button):
                 heist["primary_loot"],
                 heist["secondary_loot"],
                 heist.get("hard_mode", False),
-                total_loot
+                total_loot,
+                heist.get("safe_amount", 60000)
             ),
             inline=False
         )
@@ -889,7 +892,8 @@ class ReadyButton(discord.ui.Button):
                 heist["primary_loot"],
                 heist["secondary_loot"],
                 heist.get("hard_mode", False),
-                total_loot
+                total_loot,
+                heist.get("safe_amount", 60000)
             ),
             inline=False
         )
@@ -1254,7 +1258,8 @@ class CayoPericoView(discord.ui.View):
                 heist["primary_loot"],
                 heist["secondary_loot"],
                 heist.get("hard_mode", False),
-                total_loot
+                total_loot,
+                heist.get("safe_amount", 60000)
             ),
             inline=False
         )

@@ -213,7 +213,8 @@ def format_objectives_summary(
     primary_target: str,
     secondary_loot: Dict[str, int],
     hard_mode: bool,
-    total_loot: int
+    total_loot: int,
+    safe_amount: int = 60000
 ) -> str:
     """
     Formate le résumé des objectifs pour l'embed.
@@ -223,6 +224,7 @@ def format_objectives_summary(
         secondary_loot: Quantités secondaires
         hard_mode: True si mode difficile
         total_loot: Butin total calculé
+        safe_amount: Valeur du coffre-fort (moyenne globale ou valeur par défaut)
 
     Returns:
         Texte formaté
@@ -233,7 +235,7 @@ def format_objectives_summary(
         f"**Principal :** {primary_info['name']} ({format_money(primary_info['value'])})",
         f"**Secondaires :** {format_secondary_loot(secondary_loot)}",
         f"**Mode difficile :** {'✅ Oui (+10%)' if hard_mode else '❌ Non'}",
-        f"**Coffre-fort :** ~60 000 GTA$",
+        f"**Coffre-fort :** ~{format_money(safe_amount)}",
         "",
         f"💰 **Butin total estimé : {format_money(total_loot)}**"
     ]
@@ -287,16 +289,19 @@ def format_detailed_breakdown(
     # 3. Calculer la valeur secondaire (somme des sacs)
     secondary_value = sum(bag.get("total_value", 0) for bag in optimized_plan)
 
-    # 4. Calculer le total brut
-    total_brut = primary_value_with_bonus + secondary_value + SAFE_VALUE
+    # 4. Récupérer la vraie valeur du coffre-fort (ou utiliser la valeur par défaut)
+    safe_value = heist.get("safe_amount", SAFE_VALUE)
 
-    # 5. Déductions
+    # 5. Calculer le total brut
+    total_brut = primary_value_with_bonus + secondary_value + safe_value
+
+    # 6. Déductions
     pavel_deduction = int(total_brut * PAVEL_FEE)
     contact_deduction = int(total_brut * CONTACT_FEE)
     total_deductions = pavel_deduction + contact_deduction
 
-    # 6. Total net (88% du brut)
-    total_net = calculate_net_total(primary_value_with_bonus, secondary_value, SAFE_VALUE)
+    # 7. Total net (88% du brut)
+    total_net = calculate_net_total(primary_value_with_bonus, secondary_value, safe_value)
 
     # 7. Récupérer ou calculer les parts
     if custom_shares:
@@ -334,7 +339,7 @@ def format_detailed_breakdown(
             bag_value = bag.get("total_value", 0)
             objectives_lines.append(f"        Joueur {idx + 1} : {format_money(bag_value)}")
 
-    objectives_lines.append(f"🔐 **Coffre-fort** : {format_money(SAFE_VALUE)}")
+    objectives_lines.append(f"🔐 **Coffre-fort** : {format_money(safe_value)}")
 
     embed.add_field(
         name="💎 Objectifs et butin",

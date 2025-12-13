@@ -480,7 +480,7 @@ class CayoPericoService:
             "final_loot": row['final_loot'],
             "status": row['status'],
             "hard_mode": row['hard_mode'],
-            "safe_amount": row['safe_amount'],
+            "safe_amount": row['safe_amount'] if row['safe_amount'] is not None else 60000,
             # JSONB PostgreSQL retourne déjà un dict/list Python avec psycopg
             "optimized_plan": row['optimized_plan'] if row['optimized_plan'] else [],
             "created_at": row['created_at'],
@@ -533,6 +533,14 @@ class CayoPericoService:
             "avg_accuracy": round(float(row['avg_accuracy']), 2) if row['avg_accuracy'] else 0.0,
             "total_earned": int(row['total_earned']) if row['total_earned'] else 0,
         }
+
+    async def refresh_materialized_stats(self) -> None:
+        """Rafraîchit les vues matérialisées pour les statistiques."""
+        if self.db is None:
+            return
+
+        await self.db.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY cayo_user_stats")
+        logger.info("[Cayo] Vue matérialisée cayo_user_stats rafraîchie")
 
     async def update_custom_shares(self, heist_id: int, shares: Dict[int, float]) -> None:
         """
