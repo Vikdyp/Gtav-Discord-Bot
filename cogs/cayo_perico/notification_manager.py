@@ -272,15 +272,17 @@ class NotificationManager(commands.Cog):
             enabled: True pour activer, False pour désactiver
         """
 
+        await interaction.response.defer(ephemeral=True)
+
         if self.service.db is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ La base de données n'est pas disponible.",
                 ephemeral=True
             )
             return
 
         if not interaction.guild:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Cette commande doit être utilisée dans un serveur.",
                 ephemeral=True
             )
@@ -313,7 +315,7 @@ class NotificationManager(commands.Cog):
             status = "activées" if enabled else "désactivées"
             notif_name = "de cooldown terminé" if notification_type == "cooldown" else "de deadline mode difficile"
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"✅ Notifications {notif_name} {status} !",
                 ephemeral=True
             )
@@ -322,7 +324,7 @@ class NotificationManager(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"[Notifications] Erreur lors de la configuration: {e}")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Une erreur s'est produite lors de la configuration.",
                 ephemeral=True
             )

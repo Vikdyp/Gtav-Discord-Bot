@@ -120,10 +120,16 @@ class BotManager(commands.Bot):
                         module_path = f"cogs.{folder.name}.{file.stem}"
 
                         try:
-                            # Charger le module
+                            # Vérifier si le module a une fonction setup()
+                            module = __import__(module_path, fromlist=['setup'])
+                            if not hasattr(module, 'setup'):
+                                # Ignorer les modules utilitaires (sans fonction setup)
+                                continue
+
+                            # Charger uniquement si setup() existe
                             await self.load_extension(module_path)
                             self.logger.info(
-                                f"[OK] Cog charge: {module_path}"
+                                f"[OK] Cog chargé: {module_path}"
                             )
                         except Exception as e:
                             self.logger.error(

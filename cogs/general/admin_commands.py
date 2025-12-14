@@ -31,6 +31,8 @@ class GeneralCommands(commands.Cog):
         description="Vérifie la latence du bot"
     )
     async def ping(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
         latency_ms = round(self.bot.latency * 1000)
 
         embed = discord.Embed(
@@ -39,7 +41,7 @@ class GeneralCommands(commands.Cog):
             color=discord.Color.green()
         )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
         self.logger.info(
             f"Commande /ping utilisée par {interaction.user} "

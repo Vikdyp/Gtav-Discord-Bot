@@ -160,6 +160,8 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
         self.service = service
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
         # Parser les tableaux : format "total/bureau" ou juste "total"
         paintings_value = self.paintings.value.strip()
         total_paintings = 0
@@ -173,7 +175,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
                     total_paintings = _parse_int_field(parts[0])
                     office_paintings_count = _parse_int_field(parts[1], min_val=0, max_val=2)
                 else:
-                    await interaction.response.send_message(
+                    await interaction.followup.send(
                         "❌ Format invalide pour les tableaux. Utilisez : total/bureau (ex: 3/2) ou juste le total (ex: 3)",
                         ephemeral=True
                     )
@@ -185,7 +187,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
         # Valider que les tableaux du bureau <= total tableaux
         if office_paintings_count > total_paintings:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Les tableaux dans le bureau ({office_paintings_count}) ne peuvent pas être supérieurs au total ({total_paintings}).",
                 ephemeral=True
             )
@@ -193,7 +195,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
         # Valider que les tableaux du bureau <= 2
         if office_paintings_count > 2:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Maximum 2 tableaux dans le bureau.",
                 ephemeral=True
             )
@@ -251,7 +253,7 @@ class SecondaryTargetsModal(discord.ui.Modal, title="Objectifs secondaires (Cayo
 
         # View avec boutons de configuration
         view = ConfigView(self.primary_target, secondary_loot, self.service, office_paintings_count, global_avg_safe)
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 class ConfigView(discord.ui.View):
@@ -1105,6 +1107,8 @@ class DetailsButton(discord.ui.Button):
         self.service = service
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         heist = await self._get_heist_for_interaction(interaction)
         if heist is None:
             return
@@ -1112,7 +1116,7 @@ class DetailsButton(discord.ui.Button):
         # Récupérer le heist complet avec optimized_plan
         heist_full = await self.service.get_heist_by_id(heist["id"])
         if heist_full is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Erreur : impossible de récupérer les détails du braquage.",
                 ephemeral=True
             )
@@ -1126,7 +1130,7 @@ class DetailsButton(discord.ui.Button):
         from cogs.cayo_perico.formatters import format_detailed_breakdown
         embed = format_detailed_breakdown(heist_full, participants, custom_shares)
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _get_heist_for_interaction(self, interaction: discord.Interaction):
         """Récupère le heist lié au message du bouton."""
