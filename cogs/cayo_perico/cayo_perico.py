@@ -10,6 +10,7 @@ Fonctionnalité Cayo Perico V2 - Calculateur optimisé :
 
 from typing import Optional, Dict, List
 from datetime import datetime, timezone
+import asyncio
 
 import discord
 from discord import app_commands
@@ -465,9 +466,22 @@ class JoinButton(discord.ui.Button):
         # Différer l'interaction pour éviter l'expiration du token
         await interaction.response.defer(ephemeral=True)
 
-        # Ajouter le participant et recalculer le plan
+        # Ajouter le participant
         await self.service.add_participant(heist["id"], interaction.user.id)
-        await self._update_message_embed(interaction, heist)
+
+        # Mettre à jour la liste localement au lieu de refetch
+        participants.append(interaction.user.id)
+
+        # Calculer le plan optimisé une seule fois
+        optimized_bags = optimize_bags(
+            heist["secondary_loot"],
+            num_players=len(participants),
+            is_solo=(len(participants) == 1),
+            office_paintings=heist.get("office_paintings", 0)
+        )
+
+        # Passer participants et optimized_bags pour éviter refetch/recalcul
+        await self._update_message_embed(interaction, heist, participants=participants, optimized_bags=optimized_bags)
 
         # Confirmer l'ajout via followup
         await interaction.followup.send(
@@ -497,18 +511,27 @@ class JoinButton(discord.ui.Button):
 
         return heist
 
-    async def _update_message_embed(self, interaction: discord.Interaction, heist: Dict):
+    async def _update_message_embed(
+        self,
+        interaction: discord.Interaction,
+        heist: Dict,
+        participants: Optional[List[int]] = None,
+        optimized_bags: Optional[List] = None
+    ):
         """Met à jour l'embed du message en fonction des données BDD."""
-        participants = await self.service.get_participants(heist["id"])
+        # Si participants fournis, ne pas refetch
+        if participants is None:
+            participants = await self.service.get_participants(heist["id"])
         num_players = len(participants)
 
-        # Recalculer le plan de sac
-        optimized_bags = optimize_bags(
-            heist["secondary_loot"],
-            num_players=num_players,
-            is_solo=(num_players == 1),
-            office_paintings=heist.get("office_paintings", 0)
-        )
+        # Si optimized_bags fourni, ne pas recalculer
+        if optimized_bags is None:
+            optimized_bags = optimize_bags(
+                heist["secondary_loot"],
+                num_players=num_players,
+                is_solo=(num_players == 1),
+                office_paintings=heist.get("office_paintings", 0)
+            )
 
         # Sauvegarder le nouveau plan
         await self.service.update_optimized_plan(heist["id"], optimized_bags)
@@ -562,7 +585,11 @@ class JoinButton(discord.ui.Button):
         )
 
         # Récupérer les parts personnalisées si définies
-        custom_shares = await self.service.get_custom_shares(heist["id"])
+        # Utiliser depuis heist si disponible pour éviter refetch
+        custom_shares = heist.get("custom_shares")
+        if custom_shares is None and heist.get("id"):
+            # Fallback si pas dans heist (compatibilité)
+            custom_shares = await self.service.get_custom_shares(heist["id"])
         if custom_shares:
             # Convertir en liste dans l'ordre des participants
             shares = [custom_shares.get(pid, 25.0) for pid in participants]
@@ -635,9 +662,22 @@ class LeaveButton(discord.ui.Button):
         # Différer l'interaction pour éviter l'expiration du token
         await interaction.response.defer(ephemeral=True)
 
-        # Retirer le participant et recalculer le plan
+        # Retirer le participant
         await self.service.remove_participant(heist["id"], interaction.user.id)
-        await self._update_message_embed(interaction, heist)
+
+        # Mettre à jour la liste localement au lieu de refetch
+        participants.remove(interaction.user.id)
+
+        # Calculer le plan optimisé une seule fois
+        optimized_bags = optimize_bags(
+            heist["secondary_loot"],
+            num_players=len(participants),
+            is_solo=(len(participants) == 1),
+            office_paintings=heist.get("office_paintings", 0)
+        )
+
+        # Passer participants et optimized_bags pour éviter refetch/recalcul
+        await self._update_message_embed(interaction, heist, participants=participants, optimized_bags=optimized_bags)
 
         # Confirmer le retrait via followup
         await interaction.followup.send(
@@ -667,18 +707,27 @@ class LeaveButton(discord.ui.Button):
 
         return heist
 
-    async def _update_message_embed(self, interaction: discord.Interaction, heist: Dict):
+    async def _update_message_embed(
+        self,
+        interaction: discord.Interaction,
+        heist: Dict,
+        participants: Optional[List[int]] = None,
+        optimized_bags: Optional[List] = None
+    ):
         """Met à jour l'embed du message en fonction des données BDD."""
-        participants = await self.service.get_participants(heist["id"])
+        # Si participants fournis, ne pas refetch
+        if participants is None:
+            participants = await self.service.get_participants(heist["id"])
         num_players = len(participants)
 
-        # Recalculer le plan de sac
-        optimized_bags = optimize_bags(
-            heist["secondary_loot"],
-            num_players=num_players,
-            is_solo=(num_players == 1),
-            office_paintings=heist.get("office_paintings", 0)
-        )
+        # Si optimized_bags fourni, ne pas recalculer
+        if optimized_bags is None:
+            optimized_bags = optimize_bags(
+                heist["secondary_loot"],
+                num_players=num_players,
+                is_solo=(num_players == 1),
+                office_paintings=heist.get("office_paintings", 0)
+            )
 
         # Sauvegarder le nouveau plan
         await self.service.update_optimized_plan(heist["id"], optimized_bags)
@@ -732,7 +781,11 @@ class LeaveButton(discord.ui.Button):
         )
 
         # Récupérer les parts personnalisées si définies
-        custom_shares = await self.service.get_custom_shares(heist["id"])
+        # Utiliser depuis heist si disponible pour éviter refetch
+        custom_shares = heist.get("custom_shares")
+        if custom_shares is None and heist.get("id"):
+            # Fallback si pas dans heist (compatibilité)
+            custom_shares = await self.service.get_custom_shares(heist["id"])
         if custom_shares:
             # Convertir en liste dans l'ordre des participants
             shares = [custom_shares.get(pid, 25.0) for pid in participants]
@@ -815,10 +868,12 @@ class ReadyButton(discord.ui.Button):
         # Le heist est maintenant à jour, pas besoin de le récupérer à nouveau
         heist_full = heist
 
-        # Envoyer le plan de sac à chaque participant en privé
+        # Envoyer le plan de sac à chaque participant en privé (en parallèle)
         participants = await self.service.get_participants(heist["id"])
         optimized_plan = heist_full.get("optimized_plan") or []
 
+        # Créer toutes les tâches d'envoi
+        send_tasks = []
         for idx, participant_id in enumerate(participants):
             if idx >= len(optimized_plan):
                 continue
@@ -828,9 +883,18 @@ class ReadyButton(discord.ui.Button):
                 if user:
                     bag_plan = optimized_plan[idx]
                     dm_embed = format_bag_plan_private(bag_plan, idx + 1)
-                    await user.send(embed=dm_embed)
+                    # Ajouter à la liste au lieu d'attendre
+                    send_tasks.append(user.send(embed=dm_embed))
             except Exception as e:
-                logger.warning(f"[Cayo] Impossible d'envoyer le plan à l'utilisateur {participant_id}: {e}")
+                logger.warning(f"[Cayo] Erreur préparation DM pour {participant_id}: {e}")
+
+        # Envoyer tous les DMs en parallèle
+        if send_tasks:
+            results = await asyncio.gather(*send_tasks, return_exceptions=True)
+            # Logger les erreurs si nécessaire
+            for idx, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.warning(f"[Cayo] Échec envoi DM au joueur {idx+1}: {result}")
 
         # Calculer le temps de préparation
         from cogs.cayo_perico.optimizer import format_duration
@@ -864,18 +928,27 @@ class ReadyButton(discord.ui.Button):
 
         return heist
 
-    async def _update_message_embed(self, interaction: discord.Interaction, heist: Dict):
+    async def _update_message_embed(
+        self,
+        interaction: discord.Interaction,
+        heist: Dict,
+        participants: Optional[List[int]] = None,
+        optimized_bags: Optional[List] = None
+    ):
         """Met à jour l'embed du message en fonction des données BDD."""
-        participants = await self.service.get_participants(heist["id"])
+        # Si participants fournis, ne pas refetch
+        if participants is None:
+            participants = await self.service.get_participants(heist["id"])
         num_players = len(participants)
 
-        # Recalculer le plan de sac
-        optimized_bags = optimize_bags(
-            heist["secondary_loot"],
-            num_players=num_players,
-            is_solo=(num_players == 1),
-            office_paintings=heist.get("office_paintings", 0)
-        )
+        # Si optimized_bags fourni, ne pas recalculer
+        if optimized_bags is None:
+            optimized_bags = optimize_bags(
+                heist["secondary_loot"],
+                num_players=num_players,
+                is_solo=(num_players == 1),
+                office_paintings=heist.get("office_paintings", 0)
+            )
 
         # Sauvegarder le nouveau plan
         await self.service.update_optimized_plan(heist["id"], optimized_bags)
@@ -929,7 +1002,11 @@ class ReadyButton(discord.ui.Button):
         )
 
         # Récupérer les parts personnalisées si définies
-        custom_shares = await self.service.get_custom_shares(heist["id"])
+        # Utiliser depuis heist si disponible pour éviter refetch
+        custom_shares = heist.get("custom_shares")
+        if custom_shares is None and heist.get("id"):
+            # Fallback si pas dans heist (compatibilité)
+            custom_shares = await self.service.get_custom_shares(heist["id"])
         if custom_shares:
             # Convertir en liste dans l'ordre des participants
             shares = [custom_shares.get(pid, 25.0) for pid in participants]
@@ -1232,18 +1309,23 @@ class CayoPericoView(discord.ui.View):
         self,
         interaction: discord.Interaction,
         heist: Dict,
+        participants: Optional[List[int]] = None,
+        optimized_bags: Optional[List] = None
     ) -> None:
         """Met à jour l'embed du message en fonction des données BDD."""
-        participants = await self.service.get_participants(heist["id"])
+        # Si participants fournis, ne pas refetch
+        if participants is None:
+            participants = await self.service.get_participants(heist["id"])
         num_players = len(participants)
 
-        # Recalculer le plan de sac
-        optimized_bags = optimize_bags(
-            heist["secondary_loot"],
-            num_players=num_players,
-            is_solo=(num_players == 1),
-            office_paintings=heist.get("office_paintings", 0)
-        )
+        # Si optimized_bags fourni, ne pas recalculer
+        if optimized_bags is None:
+            optimized_bags = optimize_bags(
+                heist["secondary_loot"],
+                num_players=num_players,
+                is_solo=(num_players == 1),
+                office_paintings=heist.get("office_paintings", 0)
+            )
 
         # Sauvegarder le nouveau plan
         await self.service.update_optimized_plan(heist["id"], optimized_bags)
@@ -1297,7 +1379,11 @@ class CayoPericoView(discord.ui.View):
         )
 
         # Récupérer les parts personnalisées si définies
-        custom_shares = await self.service.get_custom_shares(heist["id"])
+        # Utiliser depuis heist si disponible pour éviter refetch
+        custom_shares = heist.get("custom_shares")
+        if custom_shares is None and heist.get("id"):
+            # Fallback si pas dans heist (compatibilité)
+            custom_shares = await self.service.get_custom_shares(heist["id"])
         if custom_shares:
             # Convertir en liste dans l'ordre des participants
             shares = [custom_shares.get(pid, 25.0) for pid in participants]
