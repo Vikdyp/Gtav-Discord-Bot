@@ -462,14 +462,17 @@ class JoinButton(discord.ui.Button):
             )
             return
 
-        # Répondre immédiatement à l'interaction
-        await interaction.response.send_message(
-            "Tu as rejoint le braquage.", ephemeral=True
-        )
+        # Différer l'interaction pour éviter l'expiration du token
+        await interaction.response.defer(ephemeral=True)
 
         # Ajouter le participant et recalculer le plan
         await self.service.add_participant(heist["id"], interaction.user.id)
         await self._update_message_embed(interaction, heist)
+
+        # Confirmer l'ajout via followup
+        await interaction.followup.send(
+            "Tu as rejoint le braquage.", ephemeral=True
+        )
 
     async def _get_heist_for_interaction(self, interaction: discord.Interaction):
         """Récupère le heist lié au message du bouton."""
@@ -605,9 +608,7 @@ class LeaveButton(discord.ui.Button):
 
         # Si l'organisateur quitte, supprimer le braquage
         if interaction.user.id == heist["leader_id"]:
-            await interaction.response.send_message(
-                "Tu es l'organisateur, le braquage va être supprimé.", ephemeral=True
-            )
+            await interaction.response.defer(ephemeral=True)
 
             # Supprimer le braquage
             await self.service.delete_heist(heist["id"])
@@ -618,6 +619,9 @@ class LeaveButton(discord.ui.Button):
             except:
                 pass
 
+            await interaction.followup.send(
+                "Tu es l'organisateur, le braquage va être supprimé.", ephemeral=True
+            )
             return
 
         # Vérifier si l'utilisateur est participant
@@ -628,14 +632,17 @@ class LeaveButton(discord.ui.Button):
             )
             return
 
-        # Répondre immédiatement à l'interaction
-        await interaction.response.send_message(
-            "Tu as quitté le braquage.", ephemeral=True
-        )
+        # Différer l'interaction pour éviter l'expiration du token
+        await interaction.response.defer(ephemeral=True)
 
         # Retirer le participant et recalculer le plan
         await self.service.remove_participant(heist["id"], interaction.user.id)
         await self._update_message_embed(interaction, heist)
+
+        # Confirmer le retrait via followup
+        await interaction.followup.send(
+            "Tu as quitté le braquage.", ephemeral=True
+        )
 
     async def _get_heist_for_interaction(self, interaction: discord.Interaction):
         """Récupère le heist lié au message du bouton."""
