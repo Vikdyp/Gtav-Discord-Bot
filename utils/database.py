@@ -4,17 +4,20 @@ from typing import Optional, Any, List
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
-logger = logging.getLogger(__name__)
+# Utiliser le logger principal "lester" pour une meilleure visibilité
+logger = logging.getLogger("lester")
 
 
 class Database:
     """
-    Utilitaire DB basé sur psycopg, même logique que dans GeneralCommands.
+    Utilitaire DB basé sur psycopg avec pool de connexions.
 
     - Utilise une connection string de type :
       postgresql://user:password@host:port/database
-    - Ouvre une nouvelle connexion pour chaque requête (comme dans ton cog).
+    - Utilise un pool de connexions pour optimiser les performances
+    - Pool min: 2 connexions, max: 10 connexions
     """
 
     def __init__(
@@ -28,33 +31,51 @@ class Database:
         self._conn_string = (
             f"postgresql://{user}:{password}@{host}:{port}/{database}"
         )
-        self._connected: bool = False  # flag logique, pas une vraie connexion persistante
+        self._pool: Optional[AsyncConnectionPool] = None
+        self._connected: bool = False
 
     # ---------- GESTION "CONNEXION" (LOGIQUE) ----------
 
     async def connect(self):
         """
-        Teste la connexion à la DB et met le flag interne à True si OK.
-        Similaire à ton /db action=test.
+        Initialise le pool de connexions et teste la connexion à la DB.
+        Le pool maintient des connexions persistantes réutilisables.
         """
         try:
-            logger.info(f"[DB] Test connexion avec : {self._conn_string}")
-            with psycopg.connect(self._conn_string) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT 1;")
-                    cur.fetchone()
+            logger.info(f"[DB] Initialisation du pool de connexions : {self._conn_string}")
+
+            # Création du pool avec min 2 et max 10 connexions
+            self._pool = AsyncConnectionPool(
+                conninfo=self._conn_string,
+                min_size=2,
+                max_size=10,
+                timeout=30.0,
+                open=False
+            )
+
+            # Ouverture du pool
+            await self._pool.open()
+
+            # Test de connexion
+            async with self._pool.connection() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT 1;")
+                    await cur.fetchone()
+
             self._connected = True
-            logger.info("[DB] Connexion PostgreSQL OK")
+            logger.info("[DB] Pool de connexions PostgreSQL initialisé avec succès (min=2, max=10)")
         except Exception as e:
             self._connected = False
-            logger.error(f"[DB] Erreur de connexion PostgreSQL : {e}")
+            logger.error(f"[DB] Erreur d'initialisation du pool PostgreSQL : {e}")
             raise
 
     async def close(self):
         """
-        On n'a pas de pool ni de connexion persistante, donc on fait
-        juste retomber le flag. Gardé pour compatibilité.
+        Ferme proprement le pool de connexions.
         """
+        if self._pool:
+            await self._pool.close()
+            logger.info("[DB] Pool de connexions fermé")
         self._connected = False
 
     def is_connected(self) -> bool:
@@ -66,6 +87,7 @@ class Database:
     async def execute(self, query: str, *args) -> None:
         """
         Exécute une requête sans retour (INSERT/UPDATE/DELETE...).
+        Utilise une connexion du pool pour optimiser les performances.
 
         Usage:
             await db.execute(
@@ -73,17 +95,18 @@ class Database:
                 val1, val2
             )
         """
-        if not self._connected:
+        if not self._connected or not self._pool:
             logger.warning(
                 "Tentative d'exécution d'une requête sans connect() préalable"
             )
+            raise RuntimeError("Base de données non connectée")
 
         try:
-            with psycopg.connect(self._conn_string) as conn:
-                with conn.cursor() as cur:
+            async with self._pool.connection() as conn:
+                async with conn.cursor() as cur:
                     # psycopg attend un tuple de paramètres -> args est déjà un tuple
-                    cur.execute(query, args if args else None)
-                conn.commit()
+                    await cur.execute(query, args if args else None)
+                await conn.commit()
         except Exception as e:
             logger.error(f"[DB] Erreur execute() : {e} | query={query} args={args}")
             raise
@@ -91,6 +114,7 @@ class Database:
     async def fetch(self, query: str, *args) -> List[Any]:
         """
         Exécute une requête SELECT et renvoie toutes les lignes.
+        Utilise une connexion du pool pour optimiser les performances.
 
         Renvoie une liste de dictionnaires avec noms de colonnes comme clés.
 
@@ -100,16 +124,17 @@ class Database:
                 user_id
             )
         """
-        if not self._connected:
+        if not self._connected or not self._pool:
             logger.warning(
                 "Tentative de fetch sans connect() préalable"
             )
+            raise RuntimeError("Base de données non connectée")
 
         try:
-            with psycopg.connect(self._conn_string) as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(query, args if args else None)
-                    rows = cur.fetchall()
+            async with self._pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(query, args if args else None)
+                    rows = await cur.fetchall()
             return rows
         except Exception as e:
             logger.error(f"[DB] Erreur fetch() : {e} | query={query} args={args}")
@@ -118,6 +143,7 @@ class Database:
     async def fetchrow(self, query: str, *args) -> Optional[Any]:
         """
         Exécute une requête SELECT et renvoie une seule ligne (ou None).
+        Utilise une connexion du pool pour optimiser les performances.
 
         Renvoie un dictionnaire avec noms de colonnes comme clés.
 
@@ -127,16 +153,17 @@ class Database:
                 entry_id
             )
         """
-        if not self._connected:
+        if not self._connected or not self._pool:
             logger.warning(
                 "Tentative de fetchrow sans connect() préalable"
             )
+            raise RuntimeError("Base de données non connectée")
 
         try:
-            with psycopg.connect(self._conn_string) as conn:
-                with conn.cursor(row_factory=dict_row) as cur:
-                    cur.execute(query, args if args else None)
-                    row = cur.fetchone()
+            async with self._pool.connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(query, args if args else None)
+                    row = await cur.fetchone()
             return row
         except Exception as e:
             logger.error(f"[DB] Erreur fetchrow() : {e} | query={query} args={args}")

@@ -2,6 +2,6 @@ discord.py==2.5.0
 python-dotenv==1.0.1
 PyNaCl
 psycopg[binary]
-asyncpg
+psycopg-pool
 matplotlib>=3.8.0
 pillow>=10.0.0
