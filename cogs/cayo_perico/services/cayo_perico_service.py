@@ -29,10 +29,19 @@ class CayoPericoService:
     def __init__(self, db: Optional[Database]):
         self.db = db
 
-    async def _get_or_create_user(self, discord_id: int) -> int:
+    async def _get_or_create_user(self, discord_id: int, username: Optional[str] = None, display_name: Optional[str] = None) -> int:
         """
         Retourne l'ID interne (users.id) pour un discord_id.
         Crée la ligne si elle n'existe pas.
+        Met à jour le username et display_name si fournis.
+
+        Args:
+            discord_id: ID Discord de l'utilisateur
+            username: Nom d'utilisateur Discord (optionnel)
+            display_name: Nom d'affichage complet (optionnel)
+
+        Returns:
+            L'ID interne de l'utilisateur
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
@@ -45,19 +54,31 @@ class CayoPericoService:
 
         row = await self.db.fetchrow(select_sql, discord_id)
         if row:
-            return row['id']
+            user_id = row['id']
+            # Mettre à jour le username et display_name si fournis
+            if username is not None or display_name is not None:
+                update_sql = """
+                UPDATE users
+                SET username = COALESCE(%s, username),
+                    display_name = COALESCE(%s, display_name),
+                    updated_at = NOW()
+                WHERE id = %s;
+                """
+                await self.db.execute(update_sql, username, display_name, user_id)
+            return user_id
 
+        # Créer le nouvel utilisateur avec username et display_name
         insert_sql = """
-        INSERT INTO users (discord_id)
-        VALUES (%s)
+        INSERT INTO users (discord_id, username, display_name)
+        VALUES (%s, %s, %s)
         RETURNING id;
         """
 
-        row = await self.db.fetchrow(insert_sql, discord_id)
+        row = await self.db.fetchrow(insert_sql, discord_id, username, display_name)
         if row is None:
             raise RuntimeError("Impossible de créer l'utilisateur en BDD")
         user_id = row['id']
-        logger.info(f"[Cayo] Nouvel utilisateur créé (discord_id={discord_id}, id={user_id})")
+        logger.info(f"[Cayo] Nouvel utilisateur créé (discord_id={discord_id}, username={username}, id={user_id})")
         return user_id
 
     async def has_active_heist(self, leader_discord_id: int) -> bool:

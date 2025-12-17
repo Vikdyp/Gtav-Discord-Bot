@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 style="text-align: center; font-size: 3rem; color: var(--accent-yellow); margin-bottom: 2rem; text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);">
+    🏆 CLASSEMENTS
+</h1>
+
+<!-- Tabs pour les différents leaderboards -->
+<div class="section">
+    <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+        <button class="btn" onclick="switchLeaderboard('total_earned')" id="btn-total_earned" style="background: var(--accent-green); color: var(--bg-dark);">
+            💰 Total Gagné
+        </button>
+        <button class="btn" onclick="switchLeaderboard('total_heists')" id="btn-total_heists">
+            📊 Total Braquages
+        </button>
+        <button class="btn" onclick="switchLeaderboard('avg_gain')" id="btn-avg_gain">
+            📈 Gain Moyen
+        </button>
+        <button class="btn" onclick="switchLeaderboard('elite_count')" id="btn-elite_count">
+            ⭐ Elite Challenges
+        </button>
+        <button class="btn" onclick="switchLeaderboard('speed_run')" id="btn-speed_run">
+            ⚡ Speed Run
+        </button>
+    </div>
+
+    <!-- Leaderboard Table -->
+    <div id="leaderboard-container">
+        <table>
+            <thead id="leaderboard-header">
+                <!-- Dynamic header -->
+            </thead>
+            <tbody id="leaderboard-body">
+                <tr><td colspan="5" style="text-align: center;">Chargement...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentLeaderboard = 'total_earned';
+
+// Load leaderboard on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadLeaderboard('total_earned');
+});
+
+// Switch leaderboard
+function switchLeaderboard(type) {
+    currentLeaderboard = type;
+
+    // Update button styles
+    const buttons = document.querySelectorAll('.btn');
+    buttons.forEach(btn => {
+        btn.style.background = 'transparent';
+        btn.style.color = 'var(--accent-green)';
+    });
+
+    const activeBtn = document.getElementById(`btn-${type}`);
+    if (activeBtn) {
+        activeBtn.style.background = 'var(--accent-green)';
+        activeBtn.style.color = 'var(--bg-dark)';
+    }
+
+    // Load data
+    loadLeaderboard(type);
+}
+
+// Load leaderboard data
+async function loadLeaderboard(type) {
+    const tbody = document.getElementById('leaderboard-body');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Chargement...</td></tr>';
+
+    const data = await apiCall(`leaderboard/${type}?limit=50`);
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">Aucune donnée disponible</td></tr>';
+        return;
+    }
+
+    // Update header based on type
+    updateHeader(type);
+
+    // Update body
+    tbody.innerHTML = data.map((player, index) => {
+        return generateRow(type, player, index + 1);
+    }).join('');
+}
+
+// Update table header
+function updateHeader(type) {
+    const header = document.getElementById('leaderboard-header');
+
+    const headers = {
+        'total_earned': '<tr><th>Rang</th><th>Joueur</th><th>Total Gagné</th><th>Braquages</th><th>Gain Moyen</th></tr>',
+        'total_heists': '<tr><th>Rang</th><th>Joueur</th><th>Braquages</th><th>Total Gagné</th><th>Gain Moyen</th></tr>',
+        'avg_gain': '<tr><th>Rang</th><th>Joueur</th><th>Gain Moyen</th><th>Braquages</th><th>Total Gagné</th></tr>',
+        'elite_count': '<tr><th>Rang</th><th>Joueur</th><th>Elite Complétés</th><th>Total Braquages</th><th>Taux Elite</th></tr>',
+        'speed_run': '<tr><th>Rang</th><th>Joueur</th><th>Meilleur Temps</th><th>Total Braquages</th><th>Total Gagné</th></tr>'
+    };
+
+    header.innerHTML = headers[type] || headers['total_earned'];
+}
+
+// Generate row HTML
+function generateRow(type, player, rank) {
+    const rankBadge = getRankBadge(rank);
+    const discordUser = formatDiscordUser(player.discord_id);
+
+    switch(type) {
+        case 'total_earned':
+            return `
+                <tr>
+                    <td>${rankBadge}</td>
+                    <td>${discordUser}</td>
+                    <td class="money">${formatMoney(player.total_earned)}</td>
+                    <td>${formatNumber(player.total_heists)}</td>
+                    <td class="money">${formatMoney(player.avg_gain)}</td>
+                </tr>
+            `;
+
+        case 'total_heists':
+            return `
+                <tr>
+                    <td>${rankBadge}</td>
+                    <td>${discordUser}</td>
+                    <td>${formatNumber(player.total_heists)}</td>
+                    <td class="money">${formatMoney(player.total_earned)}</td>
+                    <td class="money">${formatMoney(player.avg_gain)}</td>
+                </tr>
+            `;
+
+        case 'avg_gain':
+            return `
+                <tr>
+                    <td>${rankBadge}</td>
+                    <td>${discordUser}</td>
+                    <td class="money">${formatMoney(player.avg_gain)}</td>
+                    <td>${formatNumber(player.total_heists)}</td>
+                    <td class="money">${formatMoney(player.total_earned)}</td>
+                </tr>
+            `;
+
+        case 'elite_count':
+            const eliteRate = player.total_heists > 0 ? ((player.elite_count / player.total_heists) * 100).toFixed(1) : 0;
+            return `
+                <tr>
+                    <td>${rankBadge}</td>
+                    <td>${discordUser}</td>
+                    <td><span class="badge badge-elite">${player.elite_count}</span></td>
+                    <td>${formatNumber(player.total_heists)}</td>
+                    <td>${eliteRate}%</td>
+                </tr>
+            `;
+
+        case 'speed_run':
+            return `
+                <tr>
+                    <td>${rankBadge}</td>
+                    <td>${discordUser}</td>
+                    <td style="color: var(--accent-yellow); font-weight: bold;">${formatTime(player.best_mission_time_seconds)}</td>
+                    <td>${formatNumber(player.total_heists)}</td>
+                    <td class="money">${formatMoney(player.total_earned)}</td>
+                </tr>
+            `;
+
+        default:
+            return '';
+    }
+}
+</script>
+{% endblock %}

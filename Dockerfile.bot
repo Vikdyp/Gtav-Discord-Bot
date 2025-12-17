@@ -1,0 +1,62 @@
+# Stage 1: Builder - Installation des dépendances
+FROM python:3.11-slim AS builder
+
+# Variables d'environnement pour optimisation
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Installer les dépendances système pour psycopg (compilation)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier uniquement les fichiers de dépendances pour layer caching
+COPY requirements.txt .
+
+# Installer les dépendances dans un environnement virtuel
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Stage 2: Runtime - Image finale légère
+FROM python:3.11-slim
+
+# Variables d'environnement
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+# Installer uniquement les dépendances runtime pour psycopg
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer un utilisateur non-root pour la sécurité
+RUN groupadd -r lester && useradd -r -g lester -u 1000 lester
+
+# Copier le venv depuis le builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Copier le code source
+COPY --chown=lester:lester . .
+
+# Créer le dossier logs avec permissions
+RUN mkdir -p logs && chown -R lester:lester logs
+
+# Passer à l'utilisateur non-root
+USER lester
+
+# Health check optionnel (via logs ou endpoint custom)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
+
+# Point d'entrée
+ENTRYPOINT ["python", "bot.py"]

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="section" style="text-align: center; margin-top: 3rem;">
+    <h2 style="font-size: 3rem; margin-bottom: 1rem;">Bienvenue dans le Dashboard Cayo Perico</h2>
+    <p style="font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 2rem;">
+        Suivez vos statistiques de braquages, classements et optimisez vos gains !
+    </p>
+
+    <div class="stats-grid" style="max-width: 800px; margin: 3rem auto;">
+        <div class="stat-card">
+            <h3>📊 Dashboard</h3>
+            <p style="margin: 1rem 0;">Visualisez toutes vos statistiques en un coup d'œil</p>
+            <a href="/dashboard" class="btn">Voir le Dashboard</a>
+        </div>
+
+        <div class="stat-card">
+            <h3>🏆 Classements</h3>
+            <p style="margin: 1rem 0;">Consultez les meilleurs joueurs du serveur</p>
+            <a href="/leaderboards" class="btn">Voir les Classements</a>
+        </div>
+
+        <div class="stat-card">
+            <h3>🧮 Calculateur</h3>
+            <p style="margin: 1rem 0;">Calculez vos gains potentiels avant le braquage</p>
+            <a href="/calculator" class="btn">Utiliser le Calculateur</a>
+        </div>
+    </div>
+</div>
+
+<div class="section" style="margin-top: 3rem;">
+    <h2>✨ Fonctionnalités</h2>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>📈 Statistiques Détaillées</h3>
+            <p>Consultez vos gains totaux, braquages complétés, Elite challenges et plus encore</p>
+        </div>
+        <div class="stat-card">
+            <h3>📊 Graphiques Interactifs</h3>
+            <p>Visualisez votre progression avec des graphiques dynamiques</p>
+        </div>
+        <div class="stat-card">
+            <h3>🎯 Classements en Temps Réel</h3>
+            <p>Comparez-vous aux autres joueurs du serveur</p>
+        </div>
+        <div class="stat-card">
+            <h3>💰 Optimisation des Gains</h3>
+            <p>Utilisez le calculateur pour maximiser vos profits</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

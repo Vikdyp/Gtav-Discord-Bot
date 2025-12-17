@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 style="text-align: center; font-size: 3rem; color: var(--accent-blue); margin-bottom: 2rem; text-shadow: 0 0 20px rgba(0, 191, 255, 0.8);">
+    🧮 CALCULATEUR CAYO PERICO
+</h1>
+
+<div class="section">
+    <h2>💎 Configuration du Braquage</h2>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+        <!-- Cible primaire -->
+        <div>
+            <h3 style="color: var(--accent-yellow); margin-bottom: 1rem;">Cible Primaire</h3>
+            <select id="primary-target" class="btn" style="width: 100%; text-align: left;" onchange="calculate()">
+                <option value="tequila">🍾 Tequila ($630,000)</option>
+                <option value="ruby_necklace">💎 Collier de Rubis ($700,000)</option>
+                <option value="bearer_bonds">📄 Documents ($770,000)</option>
+                <option value="pink_diamond">💎 Diamant Rose ($1,300,000)</option>
+                <option value="panther_statue">🐆 Statue de la Panthère ($1,900,000)</option>
+            </select>
+
+            <div style="margin-top: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="hard-mode" onchange="calculate()">
+                    <span style="font-weight: bold; color: var(--accent-red);">Mode Difficile (+10%)</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Nombre de joueurs -->
+        <div>
+            <h3 style="color: var(--accent-yellow); margin-bottom: 1rem;">Nombre de Joueurs</h3>
+            <select id="player-count" class="btn" style="width: 100%; text-align: left;" onchange="calculate()">
+                <option value="1">👤 Solo</option>
+                <option value="2">👥 2 Joueurs</option>
+                <option value="3">👥 3 Joueurs</option>
+                <option value="4">👥 4 Joueurs</option>
+            </select>
+
+            <div style="margin-top: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="elite-challenge" onchange="calculate()">
+                    <span style="font-weight: bold; color: var(--legendary);">Elite Challenge</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <h3 style="color: var(--accent-yellow); margin-bottom: 1rem;">Butin Secondaire</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+        <div>
+            <label>🥇 Or</label>
+            <input type="number" id="gold" min="0" max="20" value="0" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+        <div>
+            <label>❄️ Cocaïne</label>
+            <input type="number" id="cocaine" min="0" max="20" value="0" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+        <div>
+            <label>🖼️ Tableaux</label>
+            <input type="number" id="paintings" min="0" max="10" value="0" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+        <div>
+            <label>🌿 Cannabis</label>
+            <input type="number" id="weed" min="0" max="20" value="0" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+        <div>
+            <label>💵 Argent</label>
+            <input type="number" id="cash" min="0" max="20" value="0" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+        <div>
+            <label>🖼️ Tableaux Bureau (0-2)</label>
+            <input type="number" id="office-paintings" min="0" max="2" value="0" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+        <div>
+            <label>🔒 Coffre-fort ($60k-$99k)</label>
+            <input type="number" id="safe-amount" min="60000" max="99000" value="80000" step="1000" class="btn" style="width: 100%;" oninput="calculate()">
+        </div>
+    </div>
+</div>
+
+<!-- Résultats -->
+<div class="section">
+    <h2>💰 Résultats du Calcul</h2>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Butin Brut</h3>
+            <div class="stat-value money" id="result-gross">0</div>
+            <div class="stat-label">Avant frais</div>
+        </div>
+        <div class="stat-card">
+            <h3>Frais (-12%)</h3>
+            <div class="stat-value" id="result-fees" style="color: var(--accent-red);">0</div>
+            <div class="stat-label">Pavel + Contact</div>
+        </div>
+        <div class="stat-card">
+            <h3>Bonus Elite</h3>
+            <div class="stat-value" id="result-elite" style="color: var(--legendary);">+0</div>
+            <div class="stat-label">Si challenge réussi</div>
+        </div>
+        <div class="stat-card" style="border: 3px solid var(--accent-green); box-shadow: 0 0 30px rgba(124, 252, 0, 0.5);">
+            <h3>Gain Net Total</h3>
+            <div class="stat-value money" id="result-net">0</div>
+            <div class="stat-label">Gain final</div>
+        </div>
+    </div>
+
+    <div style="margin-top: 2rem;">
+        <h3 style="color: var(--accent-yellow); margin-bottom: 1rem;">💼 Par Joueur (Parts Égales)</h3>
+        <div class="stat-card">
+            <div style="font-size: 2rem; font-weight: bold; color: var(--accent-green);">
+                <span class="money" id="result-per-player">0</span>
+            </div>
+            <div class="stat-label">Chaque joueur reçoit</div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Constantes Cayo Perico
+const PRIMARY_VALUES = {
+    'tequila': 630000,
+    'ruby_necklace': 700000,
+    'bearer_bonds': 770000,
+    'pink_diamond': 1300000,
+    'panther_statue': 1900000
+};
+
+const SECONDARY_VALUES = {
+    'gold': 330833,
+    'cocaine': 200250,
+    'paintings': 168750,
+    'weed': 132750,
+    'cash': 81000
+};
+
+// Calculate gains
+function calculate() {
+    // Get inputs
+    const primaryTarget = document.getElementById('primary-target').value;
+    const hardMode = document.getElementById('hard-mode').checked;
+    const playerCount = parseInt(document.getElementById('player-count').value);
+    const eliteChallenge = document.getElementById('elite-challenge').checked;
+
+    const gold = parseInt(document.getElementById('gold').value) || 0;
+    const cocaine = parseInt(document.getElementById('cocaine').value) || 0;
+    const paintings = parseInt(document.getElementById('paintings').value) || 0;
+    const weed = parseInt(document.getElementById('weed').value) || 0;
+    const cash = parseInt(document.getElementById('cash').value) || 0;
+
+    const officePaintings = parseInt(document.getElementById('office-paintings').value) || 0;
+    const safeAmount = parseInt(document.getElementById('safe-amount').value) || 80000;
+
+    // Calculate primary value
+    let primaryValue = PRIMARY_VALUES[primaryTarget];
+    if (hardMode) {
+        primaryValue *= 1.10; // +10% en mode difficile
+    }
+
+    // Calculate secondary value
+    const secondaryValue =
+        (gold * SECONDARY_VALUES.gold) +
+        (cocaine * SECONDARY_VALUES.cocaine) +
+        (paintings * SECONDARY_VALUES.paintings) +
+        (weed * SECONDARY_VALUES.weed) +
+        (cash * SECONDARY_VALUES.cash) +
+        (officePaintings * SECONDARY_VALUES.paintings);
+
+    // Gross total
+    const grossTotal = primaryValue + secondaryValue + safeAmount;
+
+    // Fees (12% = 2% Pavel + 10% Contact)
+    const fees = grossTotal * 0.12;
+
+    // Net before elite
+    const netBeforeElite = grossTotal - fees;
+
+    // Elite bonus
+    let eliteBonus = 0;
+    if (eliteChallenge) {
+        if (hardMode) {
+            eliteBonus = 100000 * playerCount; // 100k par joueur en mode difficile
+        } else {
+            eliteBonus = 50000 * playerCount; // 50k par joueur en mode normal
+        }
+    }
+
+    // Final net
+    const netTotal = netBeforeElite + eliteBonus;
+
+    // Per player
+    const perPlayer = netTotal / playerCount;
+
+    // Update UI
+    document.getElementById('result-gross').textContent = formatMoney(grossTotal);
+    document.getElementById('result-fees').textContent = '-' + formatMoney(fees);
+    document.getElementById('result-elite').textContent = '+' + formatMoney(eliteBonus);
+    document.getElementById('result-net').textContent = formatMoney(netTotal);
+    document.getElementById('result-per-player').textContent = formatMoney(perPlayer);
+}
+
+// Calculate on page load
+document.addEventListener('DOMContentLoaded', function() {
+    calculate();
+});
+</script>
+{% endblock %}

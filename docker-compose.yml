@@ -1,0 +1,110 @@
+version: '3.9'
+
+services:
+  # Service PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: lester-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${DB_USER:-lester_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-lester_password_2025}
+      POSTGRES_DB: ${DB_NAME:-lester_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+
+    volumes:
+      # Volume nommé pour persistence des données
+      - postgres_data:/var/lib/postgresql/data
+      # Scripts d'initialisation (migrations SQL)
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+
+    ports:
+      # Port exposé pour debug (5433 externe pour éviter conflit avec PostgreSQL local)
+      - "5433:5432"
+
+    networks:
+      - lester-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-lester_user} -d ${DB_NAME:-lester_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Service Bot Discord
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: lester-bot
+    restart: unless-stopped
+
+    # Attendre que postgres soit healthy
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      # Variables depuis .env
+      BOT_TOKEN: ${BOT_TOKEN}
+      DB_USER: ${DB_USER:-lester_user}
+      DB_PASSWORD: ${DB_PASSWORD:-lester_password_2025}
+      DB_HOST: postgres  # Nom du service Docker
+      DB_NAME: ${DB_NAME:-lester_db}
+      DB_PORT: 5432
+
+    volumes:
+      # Persistence des logs
+      - ./logs:/app/logs
+
+    networks:
+      - lester-network
+
+  # Service Web Dashboard
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: lester-web
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      # Config Web
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8000
+      WEB_DEBUG: ${WEB_DEBUG:-false}
+
+      # Database (mêmes variables que bot)
+      DB_USER: ${DB_USER:-lester_user}
+      DB_PASSWORD: ${DB_PASSWORD:-lester_password_2025}
+      DB_HOST: postgres
+      DB_NAME: ${DB_NAME:-lester_db}
+      DB_PORT: 5433
+
+    volumes:
+      # Logs partagés avec le bot
+      - ./logs:/app/logs
+
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+
+    networks:
+      - lester-network
+
+# Volumes nommés
+volumes:
+  postgres_data:
+    driver: local
+    name: lester-postgres-data
+
+# Network privé
+networks:
+  lester-network:
+    driver: bridge
+    name: lester-network

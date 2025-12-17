@@ -1,0 +1,82 @@
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+virtualenv/
+
+# Fichiers sensibles
+.env
+
+# Logs locaux (on monte le volume)
+logs/
+*.log
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Build artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# Tests
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+CLAUDE.md
+README.md
+README-DOCKER.md
+*.md
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Autres
+*.bak
+*.tmp
+*.temp
+.cache/

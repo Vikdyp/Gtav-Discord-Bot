@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ title }}{% endblock %}</title>
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="header-content">
+            <div class="logo-section">
+                <img src="{{ url_for('static', path='/images/lester.jpg') }}" alt="Lester" class="logo-img">
+                <div class="logo-text">
+                    <h1>LESTER</h1>
+                    <p>Cayo Perico Dashboard</p>
+                </div>
+            </div>
+
+            <nav>
+                <ul>
+                    <li><a href="/">Accueil</a></li>
+                    <li><a href="/dashboard">Dashboard</a></li>
+                    <li><a href="/leaderboards">Classements</a></li>
+                    <li><a href="/calculator">Calculateur</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Contenu principal -->
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', path='/js/main.js') }}"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
