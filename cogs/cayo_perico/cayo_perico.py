@@ -401,6 +401,8 @@ class ConfigView(discord.ui.View):
                 estimated_loot=total_loot,
                 office_paintings=self.office_paintings,
                 hard_mode=self.hard_mode,
+                leader_username=interaction.user.name,
+                leader_display_name=interaction.user.display_name,
             )
         except ValueError as e:
             # Braquage actif déjà existant - supprimer le message créé
@@ -415,7 +417,7 @@ class ConfigView(discord.ui.View):
         await self.service.update_optimized_plan(heist_id, optimized_bags)
 
         # Ajouter l'organisateur comme participant
-        await self.service.add_participant(heist_id, interaction.user.id)
+        await self.service.add_participant(heist_id, interaction.user.id, interaction.user.name, interaction.user.display_name)
 
         # Supprimer le message de configuration
         try:
@@ -467,7 +469,7 @@ class JoinButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         # Ajouter le participant
-        await self.service.add_participant(heist["id"], interaction.user.id)
+        await self.service.add_participant(heist["id"], interaction.user.id, interaction.user.name, interaction.user.display_name)
 
         # Mettre à jour la liste localement au lieu de refetch
         participants.append(interaction.user.id)
@@ -663,7 +665,7 @@ class LeaveButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         # Retirer le participant
-        await self.service.remove_participant(heist["id"], interaction.user.id)
+        await self.service.remove_participant(heist["id"], interaction.user.id, interaction.user.name, interaction.user.display_name)
 
         # Mettre à jour la liste localement au lieu de refetch
         participants.remove(interaction.user.id)

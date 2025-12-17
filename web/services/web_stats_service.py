@@ -153,12 +153,14 @@ class WebStatsService:
                 h.mission_time_seconds,
                 h.finished_at,
                 u.discord_id as leader_discord_id,
+                u.username as leader_username,
+                u.display_name as leader_display_name,
                 COUNT(cp.user_id) as player_count
             FROM cayo_heists h
             LEFT JOIN users u ON h.leader_user_id = u.id
             LEFT JOIN cayo_participants cp ON h.id = cp.heist_id
             WHERE h.guild_id = %s AND h.status = 'finished'
-            GROUP BY h.id, u.discord_id
+            GROUP BY h.id, u.discord_id, u.username, u.display_name
             ORDER BY h.finished_at DESC
             LIMIT %s
         """

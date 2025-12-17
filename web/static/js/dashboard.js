@@ -123,7 +123,7 @@ async function loadRecentHeists() {
         return `
             <tr>
                 <td>${formatDate(heist.finished_at)}</td>
-                <td>${formatDiscordUser(heist.leader_discord_id)}</td>
+                <td>${formatDiscordUser(heist.leader_discord_id, heist.leader_username, heist.leader_display_name)}</td>
                 <td>${getPrimaryLootEmoji(heist.primary_loot)} ${heist.primary_loot} ${hardMode}</td>
                 <td>${heist.player_count} joueur${heist.player_count > 1 ? 's' : ''}</td>
                 <td class="money">${formatMoney(heist.final_loot)}</td>

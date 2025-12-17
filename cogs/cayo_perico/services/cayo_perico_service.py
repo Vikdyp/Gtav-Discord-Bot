@@ -130,6 +130,8 @@ class CayoPericoService:
         estimated_loot: Optional[int] = None,
         office_paintings: int = 0,
         hard_mode: bool = False,
+        leader_username: Optional[str] = None,
+        leader_display_name: Optional[str] = None,
     ) -> int:
         """
         Crée un braquage Cayo Perico et renvoie son ID.
@@ -147,7 +149,7 @@ class CayoPericoService:
         if await self.has_active_heist(leader_discord_id):
             raise ValueError("Tu as déjà un braquage actif. Termine-le avant d'en créer un nouveau.")
 
-        leader_user_id = await self._get_or_create_user(leader_discord_id)
+        leader_user_id = await self._get_or_create_user(leader_discord_id, leader_username, leader_display_name)
 
         import json
 
@@ -181,7 +183,7 @@ class CayoPericoService:
         logger.info(f"[Cayo] Braquage créé (id={heist_id}, guild={guild_id})")
         return heist_id
 
-    async def add_participant(self, heist_id: int, user_discord_id: int) -> None:
+    async def add_participant(self, heist_id: int, user_discord_id: int, username: Optional[str] = None, display_name: Optional[str] = None) -> None:
         """
         Ajoute un participant à un braquage.
         Ignore silencieusement si le participant est déjà présent.
@@ -189,7 +191,7 @@ class CayoPericoService:
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        user_id = await self._get_or_create_user(user_discord_id)
+        user_id = await self._get_or_create_user(user_discord_id, username, display_name)
 
         insert_sql = """
         INSERT INTO cayo_participants (heist_id, user_id)
@@ -200,14 +202,14 @@ class CayoPericoService:
         await self.db.execute(insert_sql, heist_id, user_id)
         logger.info(f"[Cayo] Participant {user_discord_id} ajouté au heist {heist_id}")
 
-    async def remove_participant(self, heist_id: int, user_discord_id: int) -> None:
+    async def remove_participant(self, heist_id: int, user_discord_id: int, username: Optional[str] = None, display_name: Optional[str] = None) -> None:
         """
         Supprime un participant d'un braquage.
         """
         if self.db is None:
             raise RuntimeError("Base de données non disponible dans CayoPericoService")
 
-        user_id = await self._get_or_create_user(user_discord_id)
+        user_id = await self._get_or_create_user(user_discord_id, username, display_name)
 
         delete_sql = """
         DELETE FROM cayo_participants
