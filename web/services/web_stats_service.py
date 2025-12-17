@@ -160,7 +160,9 @@ class WebStatsService:
             LEFT JOIN users u ON h.leader_user_id = u.id
             LEFT JOIN cayo_participants cp ON h.id = cp.heist_id
             WHERE h.guild_id = %s AND h.status = 'finished'
-            GROUP BY h.id, u.discord_id, u.username, u.display_name
+            GROUP BY h.id, h.primary_loot, h.hard_mode, h.elite_challenge_completed,
+                     h.final_loot, h.mission_time_seconds, h.finished_at,
+                     u.discord_id, u.username, u.display_name
             ORDER BY h.finished_at DESC
             LIMIT %s
         """

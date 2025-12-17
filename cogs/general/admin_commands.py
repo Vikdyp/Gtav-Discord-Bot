@@ -407,6 +407,88 @@ class GeneralCommands(commands.Cog):
                 await interaction.followup.send(embed=embed)
                 self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
 
+    # -------------------- COMMANDE UPDATE USERNAMES --------------------
+
+    @app_commands.command(
+        name="update-usernames",
+        description="[Admin] Met à jour les pseudos Discord de tous les utilisateurs dans la base de données"
+    )
+    async def update_usernames(self, interaction: discord.Interaction):
+        """Met à jour les pseudos de tous les membres du serveur dans la DB."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not interaction.guild:
+            await interaction.followup.send("❌ Cette commande doit être utilisée dans un serveur.", ephemeral=True)
+            return
+
+        db = getattr(self.bot, "db", None)
+        if db is None:
+            await interaction.followup.send("❌ Base de données non disponible.", ephemeral=True)
+            return
+
+        try:
+            # Récupérer tous les utilisateurs dans la DB pour ce serveur
+            query = """
+                SELECT DISTINCT u.id, u.discord_id
+                FROM users u
+                INNER JOIN cayo_heists h ON h.leader_user_id = u.id
+                WHERE h.guild_id = %s
+                UNION
+                SELECT DISTINCT u.id, u.discord_id
+                FROM users u
+                INNER JOIN cayo_participants cp ON cp.user_id = u.id
+                INNER JOIN cayo_heists h ON h.id = cp.heist_id
+                WHERE h.guild_id = %s
+            """
+            rows = await db.fetch(query, interaction.guild.id, interaction.guild.id)
+
+            updated = 0
+            not_found = 0
+
+            for row in rows:
+                discord_id = row['discord_id']
+
+                # Récupérer le membre depuis Discord
+                try:
+                    member = await interaction.guild.fetch_member(discord_id)
+
+                    # Mettre à jour dans la DB
+                    update_query = """
+                        UPDATE users
+                        SET username = %s,
+                            display_name = %s,
+                            updated_at = NOW()
+                        WHERE discord_id = %s
+                    """
+                    await db.execute(update_query, member.name, member.display_name, discord_id)
+                    updated += 1
+
+                except discord.NotFound:
+                    not_found += 1
+                    self.logger.warning(f"Membre Discord {discord_id} introuvable dans le serveur")
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la mise à jour de {discord_id}: {e}")
+
+            embed = discord.Embed(
+                title="✅ Pseudos mis à jour",
+                description=(
+                    f"**{updated}** utilisateurs mis à jour\n"
+                    f"**{not_found}** utilisateurs introuvables (ont quitté le serveur)"
+                ),
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            self.logger.info(f"[Update Usernames] {updated} pseudos mis à jour, {not_found} introuvables")
+
+        except Exception as e:
+            embed = discord.Embed(
+                title="❌ Erreur",
+                description=f"```\n{e}\n```",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            self.logger.error(f"[Update Usernames] Erreur : {e}")
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(GeneralCommands(bot))

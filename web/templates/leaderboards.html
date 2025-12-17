@@ -108,7 +108,10 @@ function updateHeader(type) {
 // Generate row HTML
 function generateRow(type, player, rank) {
     const rankBadge = getRankBadge(rank);
-    const discordUser = formatDiscordUser(player.discord_id);
+    // Normalise les champs nom pour s'assurer d'utiliser un pseudo lisible
+    const displayName = player.display_name || player.displayName || player.username || player.user_name;
+    const username = player.username || player.user_name || player.display_name || player.displayName;
+    const discordUser = formatDiscordUser(player.discord_id, username, displayName);
 
     switch(type) {
         case 'total_earned':

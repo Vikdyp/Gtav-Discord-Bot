@@ -85,7 +85,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-lester_password_2025}
       DB_HOST: postgres
       DB_NAME: ${DB_NAME:-lester_db}
-      DB_PORT: 5433
+      DB_PORT: 5432
 
     volumes:
       # Logs partagés avec le bot

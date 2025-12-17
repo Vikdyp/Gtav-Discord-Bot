@@ -46,12 +46,15 @@ class CayoStatsService:
             )
             SELECT
                 s.discord_id,
+                u.username,
+                u.display_name,
                 s.total_earned,
                 s.total_heists,
                 s.avg_gain,
                 RANK() OVER (ORDER BY s.total_earned DESC) as rank
             FROM cayo_user_stats s
             INNER JOIN guild_users gu ON s.user_id = gu.user_id
+            INNER JOIN users u ON s.user_id = u.id
             WHERE s.total_heists > 0
             ORDER BY s.total_earned DESC
             LIMIT %s
@@ -74,12 +77,15 @@ class CayoStatsService:
             )
             SELECT
                 s.discord_id,
+                u.username,
+                u.display_name,
                 s.total_heists,
                 s.total_earned,
                 s.avg_gain,
                 RANK() OVER (ORDER BY s.total_heists DESC) as rank
             FROM cayo_user_stats s
             INNER JOIN guild_users gu ON s.user_id = gu.user_id
+            INNER JOIN users u ON s.user_id = u.id
             WHERE s.total_heists > 0
             ORDER BY s.total_heists DESC
             LIMIT %s
@@ -109,12 +115,15 @@ class CayoStatsService:
             )
             SELECT
                 s.discord_id,
+                u.username,
+                u.display_name,
                 s.avg_gain,
                 s.total_heists,
                 s.total_earned,
                 RANK() OVER (ORDER BY s.avg_gain DESC) as rank
             FROM cayo_user_stats s
             INNER JOIN guild_users gu ON s.user_id = gu.user_id
+            INNER JOIN users u ON s.user_id = u.id
             WHERE s.total_heists >= %s
             ORDER BY s.avg_gain DESC
             LIMIT %s
@@ -137,12 +146,15 @@ class CayoStatsService:
             )
             SELECT
                 s.discord_id,
+                u.username,
+                u.display_name,
                 s.elite_count,
                 s.total_heists,
                 CAST(s.elite_count * 100.0 / NULLIF(s.total_heists, 0) AS INTEGER) as elite_rate_percent,
                 RANK() OVER (ORDER BY s.elite_count DESC) as rank
             FROM cayo_user_stats s
             INNER JOIN guild_users gu ON s.user_id = gu.user_id
+            INNER JOIN users u ON s.user_id = u.id
             WHERE s.elite_count > 0
             ORDER BY s.elite_count DESC
             LIMIT %s
@@ -165,11 +177,15 @@ class CayoStatsService:
             )
             SELECT
                 s.discord_id,
+                u.username,
+                u.display_name,
                 s.best_mission_time_seconds,
                 s.total_heists,
+                s.total_earned,
                 RANK() OVER (ORDER BY s.best_mission_time_seconds ASC) as rank
             FROM cayo_user_stats s
             INNER JOIN guild_users gu ON s.user_id = gu.user_id
+            INNER JOIN users u ON s.user_id = u.id
             WHERE s.best_mission_time_seconds > 0
             ORDER BY s.best_mission_time_seconds ASC
             LIMIT %s
