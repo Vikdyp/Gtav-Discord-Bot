@@ -70,7 +70,7 @@ function createActivityChart(canvasId, data) {
         return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
     });
 
-    const values = data.map(d => d.heist_count);
+    const values = data.map(d => d.count ?? d.heist_count ?? 0);
 
     return new Chart(ctx, {
         type: 'bar',

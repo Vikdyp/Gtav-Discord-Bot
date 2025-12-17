@@ -14,6 +14,9 @@ class Migrator:
 
     def __init__(self, db: Database):
         self.db = db
+        # Fichiers de migration actuellement présents dans le repo
+        self.full_init_file = Path("migrations/000_init_complete.sql")
+        self.username_file = Path("migrations/008_add_username_to_users.sql")
 
     async def _table_exists(self, table_name: str) -> bool:
         """Vérifie si une table existe."""
@@ -75,8 +78,11 @@ class Migrator:
             if await self.check_cayo_v2_migration():
                 return True, "✅ Migration déjà appliquée (rien à faire)"
 
-            # Lire le fichier de migration
+            # Lire le fichier de migration (fallback sur la migration complète 000)
             migration_file = Path("migrations/001_cayo_perico_v2.sql")
+            if not migration_file.exists():
+                migration_file = self.full_init_file
+
             if not migration_file.exists():
                 return False, f"❌ Fichier de migration introuvable : {migration_file}"
 
@@ -261,6 +267,11 @@ class Migrator:
             results_exists = await self._table_exists("cayo_results")
             lines.append(f"• `cayo_results`: {'✅' if results_exists else '❌'}")
 
+        # Migration 008 : colonnes username/display_name
+        username_applied = await self.check_username_columns()
+        status_username = "✅ Appliquée" if username_applied else "⏳ En attente"
+        lines.append(f"• **Username / Display Name** (008): {status_username}")
+
         # Stats and Notifications (005)
         stats_applied = await self.check_stats_and_notifications()
         status_stats = "✅ Appliquée" if stats_applied else "⏳ En attente"
@@ -369,4 +380,34 @@ class Migrator:
 
         except Exception as e:
             logger.error(f"[Migrator] Erreur lors de la migration 006 : {e}")
+            return False, f"❌ Erreur lors de la migration : {str(e)}"
+
+    async def check_username_columns(self) -> bool:
+        """Vérifie si les colonnes username/display_name sont présentes (migration 008)."""
+        username_exists = await self._column_exists("users", "username")
+        display_name_exists = await self._column_exists("users", "display_name")
+        return username_exists and display_name_exists
+
+    async def apply_username_migration(self) -> tuple[bool, str]:
+        """
+        Applique la migration 008 (ajout des colonnes username / display_name).
+        """
+        try:
+            if await self.check_username_columns():
+                return True, "✅ Migration déjà appliquée (rien à faire)"
+
+            migration_file = self.username_file
+            if not migration_file.exists():
+                return False, f"❌ Fichier de migration introuvable : {migration_file}"
+
+            with open(migration_file, "r", encoding="utf-8") as f:
+                sql = f.read()
+
+            await self.db.execute(sql)
+
+            logger.info("[Migrator] Migration 008 (username/display_name) appliquée avec succès")
+            return True, "✅ Migration 008 (username/display_name) appliquée avec succès !"
+
+        except Exception as e:
+            logger.error(f"[Migrator] Erreur lors de la migration 008 : {e}")
             return False, f"❌ Erreur lors de la migration : {str(e)}"

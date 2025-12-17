@@ -28,7 +28,7 @@ class LeaderboardManager(commands.Cog):
                 "description": "Les joueurs ayant gagné le plus d'argent"
             },
             "total_heists": {
-                "name": "📊 Top Braquages Complétés",
+                "name": "📈 Top Braquages Complétés",
                 "description": "Les joueurs les plus actifs"
             },
             "avg_gain": {
@@ -36,11 +36,11 @@ class LeaderboardManager(commands.Cog):
                 "description": "Les meilleurs gains moyens (min. 5 braquages)"
             },
             "elite_count": {
-                "name": "⭐ Top Défi Elite",
+                "name": "🏅 Top Défi Elite",
                 "description": "Les champions du Défi Elite"
             },
             "speed_run": {
-                "name": "⚡ Top Speed Run",
+                "name": "⏱️ Top Speed Run",
                 "description": "Les temps de mission les plus rapides"
             }
         }
@@ -64,13 +64,12 @@ class LeaderboardManager(commands.Cog):
         self.logger.info("[Leaderboards] Début de la mise à jour automatique")
 
         try:
-            # Récupérer tous les serveurs ayant des leaderboards configurés
             guild_ids = await self.stats_service.get_all_leaderboard_guilds()
 
             for guild_id in guild_ids:
                 guild = self.bot.get_guild(guild_id)
                 if not guild:
-                    self.logger.warning(f"[Leaderboards] Guild {guild_id} non trouvé")
+                    self.logger.warning(f"[Leaderboards] Guild {guild_id} non trouvée")
                     continue
 
                 try:
@@ -90,115 +89,77 @@ class LeaderboardManager(commands.Cog):
         self.logger.info("[Leaderboards] Bot prêt, tâche de mise à jour en attente de démarrage")
 
     async def _update_guild_leaderboards(self, guild: discord.Guild):
-        """
-        Met à jour les leaderboards d'un serveur.
-
-        Args:
-            guild: Serveur Discord
-        """
-
+        """Met à jour les leaderboards d'un serveur."""
         for lb_type in self.leaderboard_types.keys():
             try:
-                # Récupérer le message stocké en DB
                 lb_msg_info = await self.stats_service.get_leaderboard_message(guild.id, lb_type)
-
                 if not lb_msg_info:
-                    continue  # Pas de leaderboard configuré pour ce type
+                    continue
 
-                # Fetch le forum channel
                 forum_channel = guild.get_channel(lb_msg_info['forum_channel_id'])
-                if not forum_channel:
-                    self.logger.warning(
-                        f"[Leaderboards] Forum channel {lb_msg_info['forum_channel_id']} non trouvé pour {guild.name}"
-                    )
+                if not forum_channel or not isinstance(forum_channel, discord.ForumChannel):
+                    self.logger.warning(f"[Leaderboards] Forum {lb_msg_info['forum_channel_id']} introuvable pour {guild.name}")
                     continue
 
-                if not isinstance(forum_channel, discord.ForumChannel):
-                    self.logger.warning(
-                        f"[Leaderboards] Channel {lb_msg_info['forum_channel_id']} n'est pas un ForumChannel"
-                    )
-                    continue
-
-                # Fetch le thread
                 thread = forum_channel.get_thread(lb_msg_info['thread_id'])
                 if not thread:
-                    # Essayer de fetch le thread via le bot
                     try:
                         thread = await self.bot.fetch_channel(lb_msg_info['thread_id'])
                     except discord.NotFound:
-                        self.logger.warning(
-                            f"[Leaderboards] Thread {lb_msg_info['thread_id']} non trouvé pour {guild.name}"
-                        )
+                        self.logger.warning(f"[Leaderboards] Thread {lb_msg_info['thread_id']} non trouvé pour {guild.name}")
                         continue
 
-                # Fetch le message
                 try:
                     message = await thread.fetch_message(lb_msg_info['message_id'])
                 except discord.NotFound:
-                    self.logger.warning(
-                        f"[Leaderboards] Message {lb_msg_info['message_id']} non trouvé pour {guild.name}/{lb_type}"
-                    )
+                    self.logger.warning(f"[Leaderboards] Message {lb_msg_info['message_id']} non trouvé pour {guild.name}/{lb_type}")
                     continue
 
-                # Récupérer les données du leaderboard
                 data = await self._get_leaderboard_data(guild.id, lb_type)
-
-                # Générer le nouvel embed
                 embed = format_leaderboard_embed(lb_type, data, guild)
-
-                # Mettre à jour le message
                 await message.edit(embed=embed)
-
-                # Update timestamp en DB
                 await self.stats_service.update_leaderboard_timestamp(guild.id, lb_type)
-
                 self.logger.info(f"[Leaderboards] {guild.name} - {lb_type} mis à jour")
 
             except Exception as e:
                 self.logger.error(f"[Leaderboards] Erreur {lb_type} pour {guild.name}: {e}")
 
     async def _get_leaderboard_data(self, guild_id: int, lb_type: str) -> List[Dict]:
-        """
-        Récupère les données pour un type de leaderboard.
-
-        Args:
-            guild_id: ID du serveur
-            lb_type: Type de leaderboard
-
-        Returns:
-            Liste de dicts avec les données du leaderboard
-        """
+        """Récupère les données pour un type de leaderboard."""
         if lb_type == "total_earned":
             return await self.stats_service.get_top_total_earned(guild_id)
-        elif lb_type == "total_heists":
+        if lb_type == "total_heists":
             return await self.stats_service.get_top_total_heists(guild_id)
-        elif lb_type == "avg_gain":
+        if lb_type == "avg_gain":
             return await self.stats_service.get_top_avg_gain(guild_id, min_heists=1)
-        elif lb_type == "elite_count":
+        if lb_type == "elite_count":
             return await self.stats_service.get_top_elite_count(guild_id)
-        elif lb_type == "speed_run":
+        if lb_type == "speed_run":
             return await self.stats_service.get_top_speed_run(guild_id)
         return []
 
     @app_commands.command(
-        name="cayo-leaderboard-setup",
-        description="[Admin] Configurer les leaderboards Cayo Perico dans un forum"
+        name="cayo-leaderboard",
+        description="[Admin] Configurer ou rafraîchir les leaderboards Cayo Perico"
     )
-    @app_commands.describe(forum_channel="Canal forum où créer les leaderboards")
+    @app_commands.describe(
+        action="setup: créer les threads ; refresh: mettre à jour tous les leaderboards",
+        forum_channel="Canal forum pour créer les leaderboards (requis pour setup)"
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="setup", value="setup"),
+            app_commands.Choice(name="refresh", value="refresh"),
+        ]
+    )
     @app_commands.default_permissions(administrator=True)
-    async def setup_leaderboards(
+    async def manage_leaderboards(
         self,
         interaction: discord.Interaction,
-        forum_channel: discord.ForumChannel
+        action: app_commands.Choice[str],
+        forum_channel: discord.ForumChannel | None = None
     ):
-        """
-        Crée les threads de leaderboard dans un forum.
-
-        Args:
-            interaction: Interaction Discord
-            forum_channel: Forum Discord où créer les threads
-        """
-
+        """Commande unique pour créer ou rafraîchir les leaderboards."""
         if self.stats_service.db is None:
             await interaction.response.send_message(
                 "❌ La base de données n'est pas disponible.",
@@ -215,99 +176,70 @@ class LeaderboardManager(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        created_count = 0
-        errors = []
+        if action.value == "setup":
+            if forum_channel is None:
+                await interaction.followup.send("⚠️ Fournis un canal forum pour créer les leaderboards.", ephemeral=True)
+                return
 
-        for lb_type, config in self.leaderboard_types.items():
+            created_count = 0
+            errors = []
+
+            for lb_type, config in self.leaderboard_types.items():
+                try:
+                    data = await self._get_leaderboard_data(interaction.guild.id, lb_type)
+                    embed = format_leaderboard_embed(lb_type, data, interaction.guild)
+
+                    thread, message = await forum_channel.create_thread(
+                        name=config["name"],
+                        content="**Leaderboard Cayo Perico**",
+                        embed=embed,
+                        auto_archive_duration=10080  # 7 jours
+                    )
+
+                    await self.stats_service.save_leaderboard_message(
+                        guild_id=interaction.guild.id,
+                        forum_channel_id=forum_channel.id,
+                        thread_id=thread.id,
+                        message_id=message.id,
+                        leaderboard_type=lb_type
+                    )
+
+                    created_count += 1
+                    self.logger.info(f"[Leaderboards] Thread créé: {config['name']} dans {forum_channel.name}")
+
+                except Exception as e:
+                    self.logger.error(f"[Leaderboards] Erreur création {lb_type}: {e}")
+                    errors.append(f"{config['name']}: {str(e)[:50]}")
+
+            if created_count == len(self.leaderboard_types):
+                await interaction.followup.send(
+                    f"✅ **{created_count}/{len(self.leaderboard_types)} leaderboards créés** dans {forum_channel.mention}\n"
+                    f"Mise à jour auto toutes les heures.",
+                    ephemeral=True
+                )
+            else:
+                error_msg = "\n".join(errors) if errors else "Erreurs inconnues"
+                await interaction.followup.send(
+                    f"⚠️ **{created_count}/{len(self.leaderboard_types)} leaderboards créés**\n"
+                    f"**Erreurs:**\n{error_msg}",
+                    ephemeral=True
+                )
+
+        else:  # refresh
             try:
-                # Récupérer les données initiales
-                data = await self._get_leaderboard_data(interaction.guild.id, lb_type)
-
-                # Générer l'embed initial
-                embed = format_leaderboard_embed(lb_type, data, interaction.guild)
-
-                # Créer le thread avec le premier message
-                thread, message = await forum_channel.create_thread(
-                    name=config["name"],
-                    content="**Leaderboard Cayo Perico**",
-                    embed=embed,
-                    auto_archive_duration=10080  # 7 jours
+                await self._update_guild_leaderboards(interaction.guild)
+                await interaction.followup.send(
+                    "✅ Leaderboards mis à jour avec succès !",
+                    ephemeral=True
                 )
-
-                # Sauvegarder en DB
-                await self.stats_service.save_leaderboard_message(
-                    guild_id=interaction.guild.id,
-                    forum_channel_id=forum_channel.id,
-                    thread_id=thread.id,
-                    message_id=message.id,
-                    leaderboard_type=lb_type
-                )
-
-                created_count += 1
-                self.logger.info(f"[Leaderboards] Thread créé: {config['name']} dans {forum_channel.name}")
+                self.logger.info(f"[Leaderboards] Mise à jour forcée pour {interaction.guild.name}")
 
             except Exception as e:
-                self.logger.error(f"[Leaderboards] Erreur création {lb_type}: {e}")
-                errors.append(f"{config['name']}: {str(e)[:50]}")
-
-        # Réponse finale
-        if created_count == len(self.leaderboard_types):
-            await interaction.followup.send(
-                f"✅ **{created_count}/{len(self.leaderboard_types)} leaderboards créés** dans {forum_channel.mention}\n\n"
-                f"Les leaderboards seront mis à jour automatiquement toutes les heures.",
-                ephemeral=True
-            )
-        else:
-            error_msg = "\n".join(errors) if errors else "Erreurs inconnues"
-            await interaction.followup.send(
-                f"⚠️ **{created_count}/{len(self.leaderboard_types)} leaderboards créés**\n\n"
-                f"**Erreurs:**\n{error_msg}",
-                ephemeral=True
-            )
-
-    @app_commands.command(
-        name="cayo-leaderboard-refresh",
-        description="[Admin] Force la mise à jour immédiate de tous les leaderboards"
-    )
-    @app_commands.default_permissions(administrator=True)
-    async def refresh_leaderboards(self, interaction: discord.Interaction):
-        """
-        Force la mise à jour immédiate de tous les leaderboards du serveur.
-
-        Args:
-            interaction: Interaction Discord
-        """
-
-        if self.stats_service.db is None:
-            await interaction.response.send_message(
-                "❌ La base de données n'est pas disponible.",
-                ephemeral=True
-            )
-            return
-
-        if not interaction.guild:
-            await interaction.response.send_message(
-                "❌ Cette commande doit être utilisée dans un serveur.",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            await self._update_guild_leaderboards(interaction.guild)
-            await interaction.followup.send(
-                "✅ Leaderboards mis à jour avec succès !",
-                ephemeral=True
-            )
-            self.logger.info(f"[Leaderboards] Mise à jour forcée pour {interaction.guild.name}")
-
-        except Exception as e:
-            self.logger.error(f"[Leaderboards] Erreur lors de la mise à jour forcée: {e}")
-            await interaction.followup.send(
-                f"❌ Une erreur s'est produite lors de la mise à jour.",
-                ephemeral=True
-            )
+                self.logger.error(f"[Leaderboards] Erreur lors de la mise à jour forcée: {e}")
+                await interaction.followup.send(
+                    "❌ Une erreur s'est produite lors de la mise à jour.",
+                    ephemeral=True
+                )
 
 
 async def setup(bot: commands.Bot):

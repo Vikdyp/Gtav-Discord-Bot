@@ -1,6 +1,6 @@
 # cogs/general/admin_commands.py
 """
-Commandes générales et utilitaires du bot.
+Commande slash /admin regroupée (ping, update-usernames, db-check).
 """
 
 import discord
@@ -9,425 +9,76 @@ from discord.ext import commands
 from typing import Optional
 
 from utils.logging_config import logger
-from utils.migrator import Migrator
 from .services.admin_commands_service import AdminCommandsService
 
 
 class GeneralCommands(commands.Cog):
-    """Cog contenant les commandes générales du bot"""
+    """Commande d'administration regroupée."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.logger = logger
-
-        # Service qui gère toute la logique DB
-        # ⬇️ ICI : on réutilise la même instance Database que celle créée dans BotManager
         self.service = AdminCommandsService(getattr(bot, "db", None))
 
-    # -------------------- COMMANDES --------------------
-
     @app_commands.command(
-        name="ping",
-        description="Vérifie la latence du bot"
+        name="admin",
+        description="[Admin] Outils : ping, update-usernames, db-check"
     )
-    async def ping(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+    @app_commands.describe(
+        action="Action à exécuter",
+        db_action="Sous-action DB (count, list_heists, clean_heists, clean_all)"
+    )
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="ping", value="ping"),
+            app_commands.Choice(name="update-usernames", value="update_usernames"),
+            app_commands.Choice(name="db-check", value="db_check"),
+        ],
+        db_action=[
+            app_commands.Choice(name="count", value="count"),
+            app_commands.Choice(name="list_heists", value="list_heists"),
+            app_commands.Choice(name="clean_heists", value="clean_heists"),
+            app_commands.Choice(name="clean_all", value="clean_all"),
+        ],
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def admin(
+        self,
+        interaction: discord.Interaction,
+        action: app_commands.Choice[str],
+        db_action: Optional[app_commands.Choice[str]] = None
+    ):
+        if action.value == "ping":
+            await self._handle_ping(interaction)
+        elif action.value == "update_usernames":
+            await self._handle_update_usernames(interaction)
+        else:
+            await self._handle_db_check(interaction, db_action.value if db_action else None)
 
+    async def _handle_ping(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         latency_ms = round(self.bot.latency * 1000)
-
         embed = discord.Embed(
             title="🏓 Pong!",
             description=f"Latence: **{latency_ms}ms**",
             color=discord.Color.green()
         )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        self.logger.info(f"Commande admin ping utilisée par {interaction.user} (latence: {latency_ms}ms)")
 
-        await interaction.followup.send(embed=embed)
-
-        self.logger.info(
-            f"Commande /ping utilisée par {interaction.user} "
-            f"(latence: {latency_ms}ms)"
-        )
-
-    # -------------------- COMMANDE DB UNIQUE --------------------
-
-    @app_commands.command(
-        name="db",
-        description="Actions de test sur la base PostgreSQL"
-    )
-    @app_commands.describe(
-        action="Que veux-tu faire ?",
-        message="Message à enregistrer (pour l'action 'save')"
-    )
-    @app_commands.choices(
-        action=[
-            app_commands.Choice(name="Tester la connexion", value="test"),
-            app_commands.Choice(name="Enregistrer un message", value="save"),
-            app_commands.Choice(name="Afficher les dernières entrées", value="show"),
-        ]
-    )
-    async def db(
-        self,
-        interaction: discord.Interaction,
-        action: app_commands.Choice[str],
-        message: Optional[str] = None,
-    ):
-        """
-        Commande unique pour tester / écrire / lire dans la DB.
-        La logique DB est déléguée à AdminCommandsService.
-        """
-        action_value = action.value
-
-        # On évite de flood le temps de la requête
-        await interaction.response.defer(thinking=True)
-
-        # ---- ACTION: TEST ----
-        if action_value == "test":
-            try:
-                result = await self.service.test_connection()
-
-                embed = discord.Embed(
-                    title="📡 Connexion PostgreSQL",
-                    description=f"Connexion réussie : **{result}**",
-                    color=discord.Color.green()
-                )
-                await interaction.followup.send(embed=embed)
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur PostgreSQL",
-                    description=f"```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[DB] Erreur PostgreSQL : {e}")
-            return
-
-        # ---- ACTION: SAVE ----
-        if action_value == "save":
-            if not message:
-                embed = discord.Embed(
-                    title="⚠️ Paramètre manquant",
-                    description="Tu dois fournir `message` pour l'action **save**.",
-                    color=discord.Color.orange()
-                )
-                await interaction.followup.send(embed=embed)
-                return
-
-            try:
-                user = interaction.user
-                entry_id, created_at = await self.service.save_message(
-                    user_id=user.id,
-                    username=str(user),
-                    content=message,
-                )
-
-                embed = discord.Embed(
-                    title="✅ Donnée enregistrée",
-                    description=(
-                        f"ID: **{entry_id}**\n"
-                        f"Utilisateur: **{user}**\n"
-                        f"Message: `{message}`\n"
-                        f"Date: `{created_at}`"
-                    ),
-                    color=discord.Color.green()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur lors de l'insertion",
-                    description=f"```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[DB] Erreur insertion PostgreSQL : {e}")
-            return
-
-        # ---- ACTION: SHOW ----
-        if action_value == "show":
-            try:
-                rows = await self.service.get_last_entries(limit=5)
-
-                if not rows:
-                    description = "Aucune entrée trouvée dans `test_entries`."
-                else:
-                    lines = []
-                    for row in rows:
-                        lines.append(
-                            f"**#{row['id']}** - {row['username']} - `{row['content']}` "
-                            f"(_{row['created_at']}_)"
-                        )
-                    description = "\n".join(lines)
-
-                embed = discord.Embed(
-                    title="📄 Dernières entrées test_entries",
-                    description=description,
-                    color=discord.Color.blurple()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur lors de la lecture",
-                    description=f"```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[DB] Erreur lecture PostgreSQL : {e}")
-            return
-
-    # -------------------- COMMANDE MIGRATE --------------------
-
-    @app_commands.command(
-        name="migrate",
-        description="[Admin] Gère les migrations de la base de données"
-    )
-    @app_commands.describe(
-        action="Action à effectuer sur les migrations"
-    )
-    @app_commands.choices(
-        action=[
-            app_commands.Choice(name="Voir le statut", value="status"),
-            app_commands.Choice(name="Appliquer Cayo Perico V2", value="apply_cayo_v2"),
-            app_commands.Choice(name="Appliquer Cayo Perico V2 Additions", value="apply_cayo_v2_add"),
-            app_commands.Choice(name="Appliquer Ready At (003)", value="apply_ready_at"),
-            app_commands.Choice(name="Appliquer Office Paintings (004)", value="apply_office_paintings"),
-            app_commands.Choice(name="Appliquer Stats & Notifications (005)", value="apply_stats_notifications"),
-            app_commands.Choice(name="Appliquer Moyenne Coffre-fort (006)", value="apply_avg_safe"),
-        ]
-    )
-    async def migrate(
-        self,
-        interaction: discord.Interaction,
-        action: app_commands.Choice[str]
-    ):
-        """
-        Commande pour gérer les migrations SQL.
-        Vérifie et applique les migrations de manière sécurisée.
-        """
-        # Vérifier que la DB est disponible
-        db = getattr(self.bot, "db", None)
-        if db is None:
-            embed = discord.Embed(
-                title="❌ Base de données non configurée",
-                description="Le bot n'a pas de connexion à la base de données.",
-                color=discord.Color.red()
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        await interaction.response.defer(thinking=True)
-
-        migrator = Migrator(db)
-        action_value = action.value
-
-        # ---- ACTION: STATUS ----
-        if action_value == "status":
-            try:
-                status_message = await migrator.get_migration_status()
-
-                embed = discord.Embed(
-                    title="📋 Statut des migrations",
-                    description=status_message,
-                    color=discord.Color.blurple()
-                )
-
-                await interaction.followup.send(embed=embed)
-                self.logger.info(f"[Migrate] Statut des migrations consulté par {interaction.user}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur",
-                    description=f"Impossible de récupérer le statut des migrations.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur lors de la récupération du statut : {e}")
-
-        # ---- ACTION: APPLY CAYO V2 ----
-        elif action_value == "apply_cayo_v2":
-            try:
-                success, message = await migrator.apply_cayo_v2_migration()
-
-                embed = discord.Embed(
-                    title="🔄 Migration Cayo Perico V2",
-                    description=message,
-                    color=discord.Color.green() if success else discord.Color.red()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-                if success:
-                    self.logger.info(f"[Migrate] Migration Cayo V2 appliquée par {interaction.user}")
-                else:
-                    self.logger.warning(f"[Migrate] Échec de la migration Cayo V2 : {message}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur critique",
-                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
-
-        # ---- ACTION: APPLY CAYO V2 ADDITIONS ----
-        elif action_value == "apply_cayo_v2_add":
-            try:
-                success, message = await migrator.apply_cayo_v2_additions()
-
-                embed = discord.Embed(
-                    title="🔄 Migration Cayo Perico V2 Additions",
-                    description=message,
-                    color=discord.Color.green() if success else discord.Color.red()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-                if success:
-                    self.logger.info(f"[Migrate] Migration Cayo V2 Additions appliquée par {interaction.user}")
-                else:
-                    self.logger.warning(f"[Migrate] Échec de la migration Cayo V2 Additions : {message}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur critique",
-                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
-
-        # ---- ACTION: APPLY READY AT (003) ----
-        elif action_value == "apply_ready_at":
-            try:
-                success, message = await migrator.apply_ready_at_migration()
-
-                embed = discord.Embed(
-                    title="🔄 Migration Ready At (003)",
-                    description=message,
-                    color=discord.Color.green() if success else discord.Color.red()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-                if success:
-                    self.logger.info(f"[Migrate] Migration Ready At (003) appliquée par {interaction.user}")
-                else:
-                    self.logger.warning(f"[Migrate] Échec de la migration Ready At (003) : {message}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur critique",
-                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
-
-        # ---- ACTION: APPLY OFFICE PAINTINGS (004) ----
-        elif action_value == "apply_office_paintings":
-            try:
-                success, message = await migrator.apply_office_paintings_migration()
-
-                embed = discord.Embed(
-                    title="🔄 Migration Office Paintings (004)",
-                    description=message,
-                    color=discord.Color.green() if success else discord.Color.red()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-                if success:
-                    self.logger.info(f"[Migrate] Migration Office Paintings (004) appliquée par {interaction.user}")
-                else:
-                    self.logger.warning(f"[Migrate] Échec de la migration Office Paintings (004) : {message}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur critique",
-                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
-
-        # ---- ACTION: APPLY STATS & NOTIFICATIONS (005) ----
-        elif action_value == "apply_stats_notifications":
-            try:
-                success, message = await migrator.apply_stats_and_notifications()
-
-                embed = discord.Embed(
-                    title="🔄 Migration Stats & Notifications (005)",
-                    description=message,
-                    color=discord.Color.green() if success else discord.Color.red()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-                if success:
-                    self.logger.info(f"[Migrate] Migration Stats & Notifications (005) appliquée par {interaction.user}")
-                else:
-                    self.logger.warning(f"[Migrate] Échec de la migration Stats & Notifications (005) : {message}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur critique",
-                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
-
-        # ---- ACTION: APPLY MOYENNE COFFRE-FORT (006) ----
-        elif action_value == "apply_avg_safe":
-            try:
-                success, message = await migrator.apply_avg_safe_amount()
-
-                embed = discord.Embed(
-                    title="🔄 Migration Moyenne Coffre-fort (006)",
-                    description=message,
-                    color=discord.Color.green() if success else discord.Color.red()
-                )
-
-                await interaction.followup.send(embed=embed)
-
-                if success:
-                    self.logger.info(f"[Migrate] Migration Moyenne Coffre-fort (006) appliquée par {interaction.user}")
-                else:
-                    self.logger.warning(f"[Migrate] Échec de la migration Moyenne Coffre-fort (006) : {message}")
-
-            except Exception as e:
-                embed = discord.Embed(
-                    title="❌ Erreur critique",
-                    description=f"Une erreur inattendue s'est produite.\n```\n{e}\n```",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed)
-                self.logger.error(f"[Migrate] Erreur critique lors de la migration : {e}")
-
-    # -------------------- COMMANDE UPDATE USERNAMES --------------------
-
-    @app_commands.command(
-        name="update-usernames",
-        description="[Admin] Met à jour les pseudos Discord de tous les utilisateurs dans la base de données"
-    )
-    async def update_usernames(self, interaction: discord.Interaction):
-        """Met à jour les pseudos de tous les membres du serveur dans la DB."""
+    async def _handle_update_usernames(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         if not interaction.guild:
-            await interaction.followup.send("❌ Cette commande doit être utilisée dans un serveur.", ephemeral=True)
+            await interaction.followup.send("⚠️ Cette commande doit être utilisée dans un serveur.", ephemeral=True)
             return
 
         db = getattr(self.bot, "db", None)
         if db is None:
-            await interaction.followup.send("❌ Base de données non disponible.", ephemeral=True)
+            await interaction.followup.send("⚠️ Base de données non disponible.", ephemeral=True)
             return
 
         try:
-            # Récupérer tous les utilisateurs dans la DB pour ce serveur
             query = """
                 SELECT DISTINCT u.id, u.discord_id
                 FROM users u
@@ -446,13 +97,9 @@ class GeneralCommands(commands.Cog):
             not_found = 0
 
             for row in rows:
-                discord_id = row['discord_id']
-
-                # Récupérer le membre depuis Discord
+                discord_id = row["discord_id"]
                 try:
                     member = await interaction.guild.fetch_member(discord_id)
-
-                    # Mettre à jour dans la DB
                     update_query = """
                         UPDATE users
                         SET username = %s,
@@ -462,7 +109,6 @@ class GeneralCommands(commands.Cog):
                     """
                     await db.execute(update_query, member.name, member.display_name, discord_id)
                     updated += 1
-
                 except discord.NotFound:
                     not_found += 1
                     self.logger.warning(f"Membre Discord {discord_id} introuvable dans le serveur")
@@ -482,12 +128,160 @@ class GeneralCommands(commands.Cog):
 
         except Exception as e:
             embed = discord.Embed(
-                title="❌ Erreur",
+                title="⚠️ Erreur",
                 description=f"```\n{e}\n```",
                 color=discord.Color.red()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
             self.logger.error(f"[Update Usernames] Erreur : {e}")
+
+    async def _handle_db_check(self, interaction: discord.Interaction, db_action: Optional[str]):
+        await interaction.response.defer(ephemeral=True)
+
+        db = getattr(self.bot, "db", None)
+        if db is None:
+            await interaction.followup.send("⚠️ Base de données non disponible.", ephemeral=True)
+            return
+
+        if db_action == "count":
+            counts = {}
+            tables = ["users", "cayo_heists", "cayo_participants", "cayo_results"]
+            for table_name in tables:
+                query = f"SELECT COUNT(*) AS count FROM {table_name};"
+                try:
+                    row = await db.fetchrow(query)
+                    counts[table_name] = row.get("count", 0) if row else 0
+                except Exception as e:
+                    counts[table_name] = f"Erreur: {str(e)}"
+
+            embed = discord.Embed(
+                title="📊 Nombre de lignes par table",
+                color=discord.Color.blue()
+            )
+            for table_name, count in counts.items():
+                embed.add_field(
+                    name=f"🗂️ {table_name}",
+                    value=f"`{count}` ligne(s)",
+                    inline=True
+                )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        if db_action == "list_heists":
+            query = """
+            SELECT
+                h.id,
+                h.status,
+                h.primary_loot,
+                h.hard_mode,
+                u.discord_id AS leader_id,
+                h.created_at,
+                (SELECT COUNT(*) FROM cayo_participants WHERE heist_id = h.id) AS num_participants
+            FROM cayo_heists h
+            JOIN users u ON h.leader_user_id = u.id
+            ORDER BY h.created_at DESC
+            LIMIT 20;
+            """
+            rows = await db.fetch(query)
+
+            if not rows:
+                await interaction.followup.send("✅ Aucun braquage dans la base de données", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title=f"🗂️ Braquages Cayo Perico ({len(rows)} trouvés)",
+                color=discord.Color.gold()
+            )
+            for row in rows[:10]:
+                heist_id = row.get("id")
+                status = row.get("status")
+                primary = row.get("primary_loot")
+                hard_mode = row.get("hard_mode")
+                leader_id = row.get("leader_id")
+                created = row.get("created_at")
+                num_part = row.get("num_participants")
+
+                status_emoji = {
+                    "pending": "⏳",
+                    "ready": "✅",
+                    "finished": "🏁"
+                }.get(status, "❔")
+
+                embed.add_field(
+                    name=f"{status_emoji} Heist #{heist_id} - {status}",
+                    value=(
+                        f"👤 Organisateur: <@{leader_id}>\n"
+                        f"🎯 Objectif: {primary}\n"
+                        f"💪 Hard mode: {'✅' if hard_mode else '❌'}\n"
+                        f"👥 Participants: {num_part}\n"
+                        f"🕒 Créé: {created.strftime('%Y-%m-%d %H:%M') if created else 'N/A'}"
+                    ),
+                    inline=False
+                )
+
+            if len(rows) > 10:
+                embed.set_footer(text=f"... et {len(rows) - 10} autre(s) braquage(s)")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        if db_action == "clean_heists":
+            row = await db.fetchrow("SELECT COUNT(*) AS count FROM cayo_heists;")
+            count = row.get("count", 0) if row else 0
+            if count == 0:
+                await interaction.followup.send("✅ Aucun braquage à nettoyer", ephemeral=True)
+                return
+
+            await db.execute("DELETE FROM cayo_heists;")
+            embed = discord.Embed(
+                title="🧹 Nettoyage effectué",
+                description=f"✅ {count} braquage(s) supprimé(s) (+ participants associés)",
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.info(f"[DB] {count} braquages nettoyés par {interaction.user}")
+            return
+
+        if db_action == "clean_all":
+            tables_queries = {
+                "cayo_heists": "SELECT COUNT(*) AS count FROM cayo_heists;",
+                "cayo_participants": "SELECT COUNT(*) AS count FROM cayo_participants;",
+                "cayo_results": "SELECT COUNT(*) AS count FROM cayo_results;",
+                "users": "SELECT COUNT(*) AS count FROM users;"
+            }
+
+            counts_before = {}
+            for table, query in tables_queries.items():
+                try:
+                    row = await db.fetchrow(query)
+                    counts_before[table] = row.get("count", 0) if row else 0
+                except Exception:
+                    counts_before[table] = 0
+
+            await db.execute("DELETE FROM cayo_results;")
+            await db.execute("DELETE FROM cayo_heists;")
+            await db.execute("DELETE FROM users;")
+
+            embed = discord.Embed(
+                title="🧹 Nettoyage complet effectué",
+                description="⚠️ **TOUTES les données Cayo Perico ont été supprimées**",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="📊 Lignes supprimées",
+                value=(
+                    f"👤 `users`: {counts_before['users']}\n"
+                    f"🎯 `cayo_heists`: {counts_before['cayo_heists']}\n"
+                    f"👥 `cayo_participants`: {counts_before['cayo_participants']}\n"
+                    f"🏁 `cayo_results`: {counts_before['cayo_results']}"
+                ),
+                inline=False
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.warning(f"[DB] Nettoyage complet Cayo Perico par {interaction.user}")
+            return
+
+        await interaction.followup.send("⚠️ db_action requis pour db-check.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

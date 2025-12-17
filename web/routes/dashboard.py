@@ -38,13 +38,3 @@ async def calculator_page(request: Request):
         "request": request,
         "title": "Calculateur - Lester"
     })
-
-
-@router.get("/profile/{discord_id}", response_class=HTMLResponse)
-async def profile_page(request: Request, discord_id: int):
-    """Page du profil d'un joueur."""
-    return templates.TemplateResponse("profile.html", {
-        "request": request,
-        "title": f"Profil - Lester",
-        "discord_id": discord_id
-    })

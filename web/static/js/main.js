@@ -40,14 +40,19 @@ function getRankBadge(rank) {
 
 // Get primary loot emoji
 function getPrimaryLootEmoji(loot) {
+    const key = (loot || '').toLowerCase();
     const emojis = {
-        'Tequila': '🍾',
-        'Ruby Necklace': '💎',
-        'Bearer Bonds': '📄',
-        'Pink Diamond': '💎',
-        'Panther Statue': '🐆'
+        'tequila': '🍾',
+        'ruby necklace': '💎',
+        'ruby_necklace': '💎',
+        'bearer bonds': '📄',
+        'bearer_bonds': '📄',
+        'pink diamond': '💎',
+        'pink_diamond': '💎',
+        'panther statue': '🐆',
+        'panther_statue': '🐆'
     };
-    return emojis[loot] || '❓';
+    return emojis[key] || '❓';
 }
 
 // API call helper

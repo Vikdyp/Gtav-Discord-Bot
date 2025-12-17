@@ -28,9 +28,9 @@ class Database:
         database: str,
         port: int = 5432,
     ):
-        self._conn_string = (
-            f"postgresql://{user}:{password}@{host}:{port}/{database}"
-        )
+        # Stocke la connexion complète et une version masquée pour les logs
+        self._conn_string = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        self._safe_conn_string = f"postgresql://{user}:****@{host}:{port}/{database}"
         self._pool: Optional[AsyncConnectionPool] = None
         self._connected: bool = False
 
@@ -42,7 +42,7 @@ class Database:
         Le pool maintient des connexions persistantes réutilisables.
         """
         try:
-            logger.info(f"[DB] Initialisation du pool de connexions : {self._conn_string}")
+            logger.info(f"[DB] Initialisation du pool de connexions : {self._safe_conn_string}")
 
             # Création du pool avec min 2 et max 10 connexions
             self._pool = AsyncConnectionPool(

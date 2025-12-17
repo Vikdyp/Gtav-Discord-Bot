@@ -305,45 +305,27 @@ COMMENT ON COLUMN cayo_user_stats.elite_count IS 'Nombre de braquages avec Défi
 COMMENT ON COLUMN cayo_user_stats.best_mission_time_seconds IS 'Temps de mission le plus rapide en secondes (0 = pas de données)';
 COMMENT ON COLUMN cayo_user_stats.avg_safe_amount IS 'Moyenne du montant du coffre-fort en tant que leader';
 
+-- FONCTION & TRIGGERS D'ACTUALISATION
 -- ============================================
--- FONCTION: REFRESH AUTOMATIQUE DES STATS
--- ============================================
--- Rafraîchit la vue matérialisée après modifications
-
 CREATE OR REPLACE FUNCTION refresh_cayo_user_stats()
 RETURNS TRIGGER AS $$
 BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY cayo_user_stats;
+    REFRESH MATERIALIZED VIEW cayo_user_stats;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION refresh_cayo_user_stats() IS 'Rafraîchit la vue matérialisée cayo_user_stats en mode concurrent';
-
--- ============================================
--- TRIGGERS: AUTO-REFRESH DE LA VUE
--- ============================================
-
--- Trigger sur cayo_results (gains, accuracy)
 DROP TRIGGER IF EXISTS trigger_refresh_cayo_stats ON cayo_results;
 CREATE TRIGGER trigger_refresh_cayo_stats
 AFTER INSERT OR UPDATE OR DELETE ON cayo_results
-FOR EACH STATEMENT
-EXECUTE FUNCTION refresh_cayo_user_stats();
+FOR EACH STATEMENT EXECUTE FUNCTION refresh_cayo_user_stats();
 
--- Trigger sur cayo_heists (elite_challenge, mission_time)
 DROP TRIGGER IF EXISTS trigger_refresh_cayo_stats_heists ON cayo_heists;
 CREATE TRIGGER trigger_refresh_cayo_stats_heists
-AFTER UPDATE ON cayo_heists
-FOR EACH STATEMENT
-EXECUTE FUNCTION refresh_cayo_user_stats();
+AFTER INSERT OR UPDATE OR DELETE ON cayo_heists
+FOR EACH STATEMENT EXECUTE FUNCTION refresh_cayo_user_stats();
 
--- ============================================
--- INITIALISATION
--- ============================================
--- Refresh initial de la vue matérialisée
-
-REFRESH MATERIALIZED VIEW CONCURRENTLY cayo_user_stats;
+REFRESH MATERIALIZED VIEW cayo_user_stats;
 
 -- ============================================
 -- RÉSUMÉ DE LA STRUCTURE
