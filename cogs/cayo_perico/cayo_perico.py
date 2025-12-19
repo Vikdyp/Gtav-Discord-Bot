@@ -1272,6 +1272,7 @@ class CayoPericoView(discord.ui.View):
 
         elif self.heist_status == "ready":
             # Phase prête (braquage lancé)
+            self.add_item(JoinButton(self.service))
             self.add_item(LeaveButton(self.service))
             self.add_item(FinishButton(self.service))
             # Répartir les parts uniquement si 2+ joueurs
