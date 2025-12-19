@@ -5,6 +5,7 @@ Wrapper autour de CayoStatsService pour le dashboard web.
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from datetime import datetime, date
 
 # Ajouter le dossier parent pour importer les services du bot
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -13,6 +14,26 @@ from cogs.cayo_perico.services.stats_service import CayoStatsService
 from cogs.cayo_perico.services.cayo_perico_service import CayoPericoService
 from utils.database import Database
 from utils.logging_config import logger
+
+
+def serialize_dates(data: Any) -> Any:
+    """
+    Convertit récursivement les objets datetime/date en chaînes ISO 8601 pour JSON.
+
+    Args:
+        data: Données à sérialiser (dict, list, datetime, ou autre)
+
+    Returns:
+        Données avec dates converties en ISO 8601
+    """
+    if isinstance(data, (datetime, date)):
+        return data.isoformat()
+    elif isinstance(data, dict):
+        return {key: serialize_dates(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [serialize_dates(item) for item in data]
+    else:
+        return data
 
 
 class WebStatsService:
@@ -168,7 +189,7 @@ class WebStatsService:
         """
 
         rows = await self.db.fetch(query, guild_id, limit)
-        return [dict(row) for row in rows]
+        return serialize_dates([dict(row) for row in rows])
 
     async def get_user_profile(self, discord_id: int, guild_id: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -227,13 +248,13 @@ class WebStatsService:
 
         try:
             activity = await self.stats_service.get_server_activity_by_day(guild_id, days=days)
-            return activity
+            return serialize_dates(activity)
         except Exception as e:
             self.logger.error(f"Erreur lors de la récupération de l'activité: {e}")
             return []
 
-    async def get_gains_by_week(self, guild_id: Optional[int] = None, weeks: int = 12) -> List[Dict[str, Any]]:
-        """Récupère les gains hebdomadaires pour les graphiques."""
+    async def get_gains_by_day(self, guild_id: Optional[int] = None, days: int = 30) -> List[Dict[str, Any]]:
+        """Récupère les gains quotidiens pour les graphiques."""
         if guild_id is None:
             guild_id = await self.get_default_guild_id()
 
@@ -241,8 +262,8 @@ class WebStatsService:
             return []
 
         try:
-            gains = await self.stats_service.get_server_gains_by_week(guild_id, weeks=weeks)
-            return gains
+            gains = await self.stats_service.get_server_gains_by_day(guild_id, days=days)
+            return serialize_dates(gains)
         except Exception as e:
             self.logger.error(f"Erreur lors de la récupération des gains: {e}")
             return []

@@ -10,6 +10,26 @@
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        // Validation du chargement de Chart.js
+        window.addEventListener('load', function() {
+            if (typeof Chart === 'undefined') {
+                console.error('Chart.js failed to load from CDN');
+                const chartContainers = document.querySelectorAll('.chart-container');
+                chartContainers.forEach(container => {
+                    container.innerHTML = `
+                        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ff4444; text-align: center;">
+                            <div>
+                                <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">⚠️</p>
+                                <p>Erreur de chargement de la bibliothèque Chart.js</p>
+                                <p style="font-size: 0.9rem; color: #999;">Veuillez vérifier votre connexion internet</p>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+        });
+    </script>
 
     {% block extra_head %}{% endblock %}
 </head>

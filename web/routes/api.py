@@ -140,17 +140,17 @@ async def get_activity_data(request: Request, guild_id: Optional[int] = None, da
 
 
 @router.get("/gains")
-async def get_gains_data(request: Request, guild_id: Optional[int] = None, weeks: int = 12):
+async def get_gains_data(request: Request, guild_id: Optional[int] = None, days: int = 30):
     """
-    Récupère les gains hebdomadaires pour les graphiques.
+    Récupère les gains quotidiens pour les graphiques.
 
     Args:
         guild_id: ID du serveur Discord (optionnel)
-        weeks: Nombre de semaines d'historique (défaut: 12)
+        days: Nombre de jours d'historique (défaut: 30)
     """
     try:
         service = get_stats_service(request)
-        data = await service.get_gains_by_week(guild_id, weeks)
+        data = await service.get_gains_by_day(guild_id, days)
 
         return {
             "success": True,

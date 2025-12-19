@@ -10,6 +10,35 @@ const chartTheme = {
     accentYellow: '#ffd700',
 };
 
+// Format money compact (pour axes Y)
+function formatMoneyCompact(value) {
+    if (value >= 1000000) {
+        return (value / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    }
+    if (value >= 1000) {
+        return (value / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    }
+    return formatNumber(value);
+}
+
+// Afficher un message d'erreur dans le conteneur du graphique
+function showEmptyChartMessage(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    const container = canvas.parentElement;
+    if (!container) return;
+
+    container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary); text-align: center;">
+            <div>
+                <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">📊</p>
+                <p>Aucune donnée disponible pour cette période</p>
+            </div>
+        </div>
+    `;
+}
+
 // Configuration par défaut pour tous les charts
 Chart.defaults.color = chartTheme.textColor;
 Chart.defaults.borderColor = chartTheme.gridColor;
@@ -63,117 +92,157 @@ const commonOptions = {
 // Create activity chart (bar chart)
 function createActivityChart(canvasId, data) {
     const ctx = document.getElementById(canvasId);
-    if (!ctx) return null;
+    if (!ctx) {
+        console.error('Canvas element not found:', canvasId);
+        return null;
+    }
 
-    const labels = data.map(d => {
-        const date = new Date(d.date);
-        return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-    });
+    if (!data || data.length === 0) {
+        console.warn('No data provided for chart:', canvasId);
+        showEmptyChartMessage(canvasId);
+        return null;
+    }
 
-    const values = data.map(d => d.count ?? d.heist_count ?? 0);
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js library not loaded');
+        return null;
+    }
 
-    return new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Braquages par jour',
-                data: values,
-                backgroundColor: chartTheme.accentGreen + '80',
-                borderColor: chartTheme.accentGreen,
-                borderWidth: 2
-            }]
-        },
-        options: {
-            ...commonOptions,
-            plugins: {
-                ...commonOptions.plugins,
-                title: {
-                    display: true,
-                    text: 'Activité des 30 Derniers Jours',
-                    color: chartTheme.accentGreen,
-                    font: {
-                        size: 18,
-                        weight: 'bold'
+    try {
+        const labels = data.map(d => {
+            const date = new Date(d.date);
+            return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+        });
+
+        const values = data.map(d => d.count ?? d.heist_count ?? 0);
+
+        return new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Braquages par jour',
+                    data: values,
+                    backgroundColor: chartTheme.accentGreen + '80',
+                    borderColor: chartTheme.accentGreen,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    title: {
+                        display: true,
+                        text: 'Activité des 30 Derniers Jours',
+                        color: chartTheme.accentGreen,
+                        font: {
+                            size: 18,
+                            weight: 'bold'
+                        }
                     }
                 }
             }
-        }
-    });
+        });
+    } catch (error) {
+        console.error('Error creating activity chart:', error);
+        showEmptyChartMessage(canvasId);
+        return null;
+    }
 }
 
 // Create gains chart (line chart with area)
 function createGainsChart(canvasId, data) {
     const ctx = document.getElementById(canvasId);
-    if (!ctx) return null;
+    if (!ctx) {
+        console.error('Canvas element not found:', canvasId);
+        return null;
+    }
 
-    const labels = data.map(d => {
-        const date = new Date(d.week_start);
-        return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-    });
+    if (!data || data.length === 0) {
+        console.warn('No data provided for chart:', canvasId);
+        showEmptyChartMessage(canvasId);
+        return null;
+    }
 
-    const values = data.map(d => d.total_gains);
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js library not loaded');
+        return null;
+    }
 
-    return new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Gains hebdomadaires (GTA$)',
-                data: values,
-                backgroundColor: chartTheme.accentBlue + '40',
-                borderColor: chartTheme.accentBlue,
-                borderWidth: 3,
-                fill: true,
-                tension: 0.4,
-                pointBackgroundColor: chartTheme.accentBlue,
-                pointBorderColor: '#fff',
-                pointBorderWidth: 2,
-                pointRadius: 5,
-                pointHoverRadius: 7
-            }]
-        },
-        options: {
-            ...commonOptions,
-            plugins: {
-                ...commonOptions.plugins,
-                title: {
-                    display: true,
-                    text: 'Gains des 12 Dernières Semaines',
-                    color: chartTheme.accentBlue,
-                    font: {
-                        size: 18,
-                        weight: 'bold'
-                    }
-                },
-                tooltip: {
-                    ...commonOptions.plugins.tooltip,
-                    callbacks: {
-                        label: function(context) {
-                            let label = context.dataset.label || '';
-                            if (label) {
-                                label += ': ';
+    try {
+        const labels = data.map(d => {
+            const date = new Date(d.date);
+            return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+        });
+
+        const values = data.map(d => d.total_gains);
+
+        return new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Gains quotidiens (GTA$)',
+                    data: values,
+                    backgroundColor: chartTheme.accentBlue + '40',
+                    borderColor: chartTheme.accentBlue,
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: chartTheme.accentBlue,
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 5,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    title: {
+                        display: true,
+                        text: 'Gains des 30 Derniers Jours',
+                        color: chartTheme.accentBlue,
+                        font: {
+                            size: 18,
+                            weight: 'bold'
+                        }
+                    },
+                    tooltip: {
+                        ...commonOptions.plugins.tooltip,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                label += formatMoney(context.parsed.y) + ' $';
+                                return label;
                             }
-                            label += formatMoney(context.parsed.y) + ' $';
-                            return label;
                         }
                     }
-                }
-            },
-            scales: {
-                ...commonOptions.scales,
-                y: {
-                    ...commonOptions.scales.y,
-                    ticks: {
-                        ...commonOptions.scales.y.ticks,
-                        callback: function(value) {
-                            return formatMoney(value) + ' $';
+                },
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        ticks: {
+                            ...commonOptions.scales.y.ticks,
+                            callback: function(value) {
+                                return formatMoneyCompact(value) + ' $';
+                            }
                         }
                     }
                 }
             }
-        }
-    });
+        });
+    } catch (error) {
+        console.error('Error creating gains chart:', error);
+        showEmptyChartMessage(canvasId);
+        return null;
+    }
 }
 
 // Create progression chart (for user profile)
@@ -232,7 +301,7 @@ function createProgressionChart(canvasId, data) {
                     ticks: {
                         ...commonOptions.scales.y.ticks,
                         callback: function(value) {
-                            return formatMoney(value) + ' $';
+                            return formatMoneyCompact(value) + ' $';
                         }
                     }
                 }

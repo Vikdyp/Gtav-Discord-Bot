@@ -38,34 +38,28 @@ async function loadServerStats() {
 // Load activity chart
 async function loadActivityChart() {
     const data = await apiCall('activity?days=30');
-    if (!data || data.length === 0) {
-        console.log('No activity data available');
-        return;
-    }
 
     // Destroy existing chart if any
     if (activityChart) {
         activityChart.destroy();
+        activityChart = null;
     }
 
-    // Create new chart
+    // createActivityChart gère déjà l'affichage d'erreur si data est vide
     activityChart = createActivityChart('activity-chart', data);
 }
 
 // Load gains chart
 async function loadGainsChart() {
-    const data = await apiCall('gains?weeks=12');
-    if (!data || data.length === 0) {
-        console.log('No gains data available');
-        return;
-    }
+    const data = await apiCall('gains?days=30');
 
     // Destroy existing chart if any
     if (gainsChart) {
         gainsChart.destroy();
+        gainsChart = null;
     }
 
-    // Create new chart
+    // createGainsChart gère déjà l'affichage d'erreur si data est vide
     gainsChart = createGainsChart('gains-chart', data);
 }
 

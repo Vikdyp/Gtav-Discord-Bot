@@ -393,45 +393,44 @@ class CayoStatsService:
         """
         self._ensure_db()
 
-        query = """
+        query = f"""
             SELECT
-                DATE(finished_at) as date,
+                DATE((finished_at + INTERVAL '1 hour')) as date,
                 COUNT(*) as count
             FROM cayo_heists
             WHERE guild_id = %s
               AND status = 'finished'
-              AND finished_at >= NOW() - INTERVAL '%s days'
-            GROUP BY DATE(finished_at)
+              AND finished_at >= NOW() - INTERVAL '{days} days'
+            GROUP BY DATE((finished_at + INTERVAL '1 hour'))
             ORDER BY date ASC
         """
 
-        rows = await self.db.fetch(query, guild_id, days)
+        rows = await self.db.fetch(query, guild_id)
         return [dict(row) for row in rows]
 
-    async def get_server_gains_by_week(self, guild_id: int, weeks: int = 12) -> List[Dict]:
+    async def get_server_gains_by_day(self, guild_id: int, days: int = 30) -> List[Dict]:
         """
-        Récupère les gains totaux du serveur par semaine.
+        Récupère les gains totaux du serveur par jour.
 
         Returns:
-            Liste de dicts avec {week_start, total_gains, total_heists}
+            Liste de dicts avec {date, total_gains, total_heists}
         """
         self._ensure_db()
 
-        query = """
+        query = f"""
             SELECT
-                DATE_TRUNC('week', h.finished_at) as week_start,
-                SUM(r.real_gain) as total_gains,
+                DATE((h.finished_at + INTERVAL '1 hour')) as date,
+                SUM(h.final_loot) as total_gains,
                 COUNT(DISTINCT h.id) as total_heists
             FROM cayo_heists h
-            INNER JOIN cayo_results r ON h.id = r.heist_id
             WHERE h.guild_id = %s
               AND h.status = 'finished'
-              AND h.finished_at >= NOW() - INTERVAL '%s weeks'
-            GROUP BY DATE_TRUNC('week', h.finished_at)
-            ORDER BY week_start ASC
+              AND h.finished_at >= NOW() - INTERVAL '{days} days'
+            GROUP BY DATE((h.finished_at + INTERVAL '1 hour'))
+            ORDER BY date ASC
         """
 
-        rows = await self.db.fetch(query, guild_id, weeks)
+        rows = await self.db.fetch(query, guild_id)
         return [dict(row) for row in rows]
 
     async def get_global_avg_safe_amount(self) -> int:
