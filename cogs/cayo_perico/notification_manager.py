@@ -89,8 +89,34 @@ class NotificationManager(commands.Cog):
         rows = await self.service.db.fetch(query)
         return [dict(row) for row in rows]
 
+    async def _has_active_heist(self, leader_user_id: int, guild_id: int) -> bool:
+        """Verifie si un leader a un braquage actif sur ce serveur."""
+        if self.service.db is None:
+            return False
+
+        query = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM cayo_heists
+                WHERE leader_user_id = %s
+                  AND guild_id = %s
+                  AND status IN ('pending', 'ready')
+            ) as exists
+        """
+
+        row = await self.service.db.fetchrow(query, leader_user_id, guild_id)
+        return row['exists'] if row else False
+
     async def _process_cooldown(self, cooldown: Dict, now: datetime):
         """Traite un cooldown individuel."""
+
+        if await self._has_active_heist(cooldown['leader_user_id'], cooldown['guild_id']):
+            if not cooldown['notified_cooldown'] or not cooldown['notified_hardmode']:
+                await self._mark_all_notified(cooldown['id'])
+            self.logger.info(
+                f"[Notifications] Cooldown {cooldown['id']} ignore: leader a deja un braquage actif"
+            )
+            return
 
         # Calculer les timestamps
         cooldown_minutes = (self.COOLDOWN_SOLO_MINUTES if cooldown['num_players'] == 1
@@ -243,6 +269,20 @@ class NotificationManager(commands.Cog):
         query = """
             UPDATE cayo_active_cooldowns
             SET notified_hardmode = true
+            WHERE id = %s
+        """
+
+        await self.service.db.execute(query, cooldown_id)
+
+    async def _mark_all_notified(self, cooldown_id: int):
+        """Marque cooldown et hardmode comme notifies."""
+        if self.service.db is None:
+            return
+
+        query = """
+            UPDATE cayo_active_cooldowns
+            SET notified_cooldown = true,
+                notified_hardmode = true
             WHERE id = %s
         """
 
