@@ -10,6 +10,8 @@ import sys
 import platform
 import warnings
 
+import discord
+
 from config import config
 from core.bot_manager import BotManager
 from utils.logging_config import logger
@@ -34,10 +36,22 @@ async def main():
         # Démarrer le bot
         async with bot:
             await bot.start(config.token)
+    except discord.LoginFailure:
+        logger.critical("❌ Échec de connexion: Token Discord invalide")
+        sys.exit(1)
+    except discord.HTTPException as e:
+        if hasattr(e, 'status') and e.status == 429:
+            logger.critical("❌ Bot rate limité par Discord lors de la connexion")
+            logger.critical("Attendez 10-15 minutes avant de redémarrer")
+            sys.exit(1)
+        else:
+            logger.critical(f"❌ Erreur HTTP Discord: {e}")
+            sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Arrêt du bot demandé par l'utilisateur (Ctrl+C)")
+        sys.exit(0)
     except Exception as e:
-        logger.exception(f"Erreur fatale: {e}")
+        logger.critical(f"❌ Erreur critique non gérée: {e}", exc_info=True)
         sys.exit(1)
 
 

@@ -104,7 +104,15 @@ class PrimaryTargetSelect(discord.ui.Select):
 
         # Ouvrir le Modal pour les objectifs secondaires
         modal = SecondaryTargetsModal(primary_target, self.service)
-        await interaction.response.send_modal(modal)
+        try:
+            await interaction.response.send_modal(modal)
+        except discord.NotFound:
+            # Interaction expirée à cause du rate limiting
+            logger.warning(f"Interaction expirée pour PrimaryTargetSelect (utilisateur: {interaction.user.id})")
+            return
+        except discord.HTTPException as e:
+            logger.error(f"Erreur HTTP lors de l'envoi du modal: {e}")
+            return
 
         # Supprimer le message du Select
         try:
@@ -275,6 +283,9 @@ class ConfigView(discord.ui.View):
         custom_id="toggle_hard_mode"
     )
     async def toggle_hard_mode(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Acquitter l'interaction immédiatement pour éviter l'expiration du token
+        await interaction.response.defer()
+
         self.hard_mode = not self.hard_mode
 
         # Mettre à jour le bouton
@@ -312,7 +323,13 @@ class ConfigView(discord.ui.View):
             inline=False
         )
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.edit_original_response(embed=embed, view=self)
+        except discord.NotFound:
+            # Interaction expirée (rare après defer, mais géré gracieusement)
+            pass  # Le message ephemeral de l'utilisateur a déjà disparu, rien à mettre à jour
+        except discord.HTTPException as e:
+            logger.error(f"Erreur lors de la mise à jour du mode difficile: {e}")
 
     @discord.ui.button(
         label="✅ Confirmer et créer",
@@ -1891,11 +1908,17 @@ class CayoPerico(commands.Cog):
 
         # Envoyer un Select pour choisir l'objectif principal
         view = PrimaryTargetView(self.service)
-        await interaction.response.send_message(
-            "🎯 **Choisir l'objectif principal du braquage Cayo Perico :**",
-            view=view,
-            ephemeral=True
-        )
+        try:
+            await interaction.response.send_message(
+                "🎯 **Choisir l'objectif principal du braquage Cayo Perico :**",
+                view=view,
+                ephemeral=True
+            )
+        except discord.NotFound:
+            # Interaction expirée à cause du rate limiting
+            logger.warning(f"Interaction expirée pour /cayo-perico (utilisateur: {interaction.user.id})")
+        except discord.HTTPException as e:
+            logger.error(f"Erreur HTTP lors de l'envoi du message /cayo-perico: {e}")
 
 
 # ==================== ENREGISTREMENT VIEW PERSISTANTE ====================

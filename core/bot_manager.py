@@ -6,6 +6,7 @@ Gère le cycle de vie, le chargement des cogs et la synchronisation.
 
 from pathlib import Path
 from typing import Optional
+import os
 
 import discord
 from discord.ext import commands
@@ -90,14 +91,45 @@ class BotManager(commands.Bot):
             self.logger.error(f"Erreur lors de l'initialisation des views persistantes: {e}")
 
         # -----------------------------
-        # 4) Synchronisation des slash commands
+        # 4) Synchronisation intelligente des slash commands
         # -----------------------------
-        self.logger.info("Synchronisation des commandes slash...")
-        try:
-            synced = await self.tree.sync()
-            self.logger.info(f"{len(synced)} commande(s) slash synchronisée(s)")
-        except Exception as e:
-            self.logger.error(f"Erreur lors de la synchronisation des commandes: {e}")
+        force_sync = os.getenv("FORCE_COMMAND_SYNC", "false").lower() == "true"
+        disable_sync = os.getenv("DISABLE_COMMAND_SYNC", "false").lower() == "true"
+
+        if disable_sync and not force_sync:
+            self.logger.info("Sync des commandes d??sactiv?? (DISABLE_COMMAND_SYNC=true)")
+            self.logger.info("Les commandes Discord d??j?? enregistr??es seront utilis??es")
+            self.logger.info("Pour forcer le sync: d??finir FORCE_COMMAND_SYNC=true dans .env")
+        else:
+            if force_sync:
+                self.logger.info("Synchronisation forc??e des commandes slash (FORCE_COMMAND_SYNC=true)...")
+            else:
+                self.logger.info("Synchronisation des commandes slash au d??marrage...")
+            try:
+                synced = await self.tree.sync()
+                self.logger.info(f"{len(synced)} commande(s) slash synchronis??e(s)")
+            except discord.HTTPException as e:
+                if e.status == 429:
+                    self.logger.warning("?s???? Rate limit?? lors du sync des commandes - commandes non synchronis??es")
+                    self.logger.warning("Les commandes existantes seront utilis??es. R??essayez plus tard si n??cessaire.")
+                else:
+                    self.logger.error(f"Erreur HTTP lors de la synchronisation: {e}")
+                    raise
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la synchronisation des commandes: {e}")
+                raise
+
+
+    async def on_error(self, event: str, *args, **kwargs) -> None:
+        """
+        Gestionnaire global d'erreurs pour tous les events Discord.
+        Empêche le crash du bot et log les erreurs détaillées.
+        """
+        import sys
+        import traceback
+
+        self.logger.error(f"❌ Erreur dans l'event {event}")
+        self.logger.error("".join(traceback.format_exception(*sys.exc_info())))
 
 
     async def load_all_cogs(self):
@@ -149,14 +181,7 @@ class BotManager(commands.Bot):
         for guild in self.guilds:
             self.logger.info(f"  - {guild.name} (ID: {guild.id})")
 
-    async def on_error(self, event: str, *args, **kwargs):
-        """
-        Gestionnaire d'erreurs global.
 
-        Args:
-            event: Nom de l'événement qui a causé l'erreur
-        """
-        self.logger.exception(f"Erreur dans l'événement {event}")
 
     async def close(self):
         """
