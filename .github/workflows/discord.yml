@@ -19,5 +19,5 @@ jobs:
           MSG: ${{ github.event.head_commit.message }}
         run: |
           curl -H "Content-Type: application/json" \
-               -d "{\"content\":\"Push par **$ACTOR** sur **$REF**\n📝 $MSG\n🔗 ||$URL||\"}" \
+               -d "{\"content\":\"📌 Push par **$ACTOR** sur **$REF**\n📝 $MSG\n🔗 $URL\"}" \
                "$WEBHOOK"
